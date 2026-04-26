@@ -6,6 +6,7 @@ import {
 import clsx from 'clsx'
 import { fetchZones, createZone, updateZone, updateZoneConfig, deleteZone } from '../api/zones'
 import { fetchDevices, assignZoneDevice } from '../api/devices'
+import { fetchTanks } from '../api/tanks'
 
 function Toggle({ checked, onChange }) {
   return (
@@ -178,7 +179,7 @@ function CreateZoneModal({ devices, onClose, onCreated }) {
   )
 }
 
-function ZoneConfigCard({ zone, devices, onSaved, onDeleted }) {
+function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -189,6 +190,7 @@ function ZoneConfigCard({ zone, devices, onSaved, onDeleted }) {
       name: zone.name,
       active: zone.active,
       device_id: zone.device_id ?? '',
+      tank_id: zone.tank_id ?? '',
       relay_pin_local: zone.relay_pin_local ?? '',
       soil_pin_a_local: zone.soil_pin_a_local ?? '',
       soil_pin_b_local: zone.soil_pin_b_local ?? '',
@@ -208,9 +210,11 @@ function ZoneConfigCard({ zone, devices, onSaved, onDeleted }) {
     setStatus(null)
     try {
       const newDeviceId = form.device_id === '' ? null : Number(form.device_id)
+      const newTankId = form.tank_id === '' ? null : Number(form.tank_id)
       const gpioPayload = {
         name: form.name,
         active: form.active,
+        tank_id: newTankId,
         relay_pin_local: form.relay_pin_local !== '' ? Number(form.relay_pin_local) : null,
         soil_pin_a_local: form.soil_pin_a_local !== '' ? Number(form.soil_pin_a_local) : null,
         soil_pin_b_local: form.soil_pin_b_local !== '' ? Number(form.soil_pin_b_local) : null,
@@ -310,6 +314,18 @@ function ZoneConfigCard({ zone, devices, onSaved, onDeleted }) {
             ))}
           </select>
         </FieldRow>
+        <FieldRow label="Dipòsit d'aigua">
+          <select
+            value={form.tank_id}
+            onChange={e => set('tank_id', e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none max-w-[200px]"
+          >
+            <option value="">Sense dipòsit</option>
+            {tanks.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </FieldRow>
 
         <SectionHeader icon={CircuitBoard} label="Pins GPIO" />
         <FieldRow label="Pin relé (bomba)">
@@ -379,15 +395,17 @@ function ZoneConfigCard({ zone, devices, onSaved, onDeleted }) {
 export default function Zones() {
   const [zones, setZones] = useState([])
   const [devices, setDevices] = useState([])
+  const [tanks, setTanks] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [z, d] = await Promise.all([fetchZones(), fetchDevices()])
+      const [z, d, t] = await Promise.all([fetchZones(), fetchDevices(), fetchTanks()])
       setZones(z)
       setDevices(d)
+      setTanks(t)
       setError(null)
     } catch {
       setError("No s'ha pogut carregar les zones")
@@ -439,6 +457,7 @@ export default function Zones() {
               key={zone.id}
               zone={zone}
               devices={devices}
+              tanks={tanks}
               onSaved={load}
               onDeleted={load}
             />

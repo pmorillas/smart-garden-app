@@ -196,10 +196,45 @@ function ZoneCard({ zone, isLoading }) {
   )
 }
 
+const TANK_STATE_CONFIG = {
+  full:    { label: 'Ple',  bar: 'bg-blue-400',   text: 'text-blue-700'   },
+  ok:      { label: 'Bé',   bar: 'bg-green-400',  text: 'text-green-700'  },
+  low:     { label: 'Baix', bar: 'bg-orange-400', text: 'text-orange-600' },
+  empty:   { label: 'Buit', bar: 'bg-red-400',    text: 'text-red-600'    },
+  unknown: { label: '—',    bar: 'bg-gray-200',   text: 'text-gray-400'   },
+}
+
+function TankCard({ tank }) {
+  const pct = tank.level_percent
+  const state = tank.sensor_state ?? 'unknown'
+  const cfg = TANK_STATE_CONFIG[state] ?? TANK_STATE_CONFIG.unknown
+
+  return (
+    <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="font-medium text-gray-800">{tank.name}</p>
+        <span className={clsx('text-xs font-semibold', cfg.text)}>{cfg.label}</span>
+      </div>
+      <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={clsx('h-full rounded-full transition-all duration-700', cfg.bar)}
+          style={{ width: pct != null ? `${Math.min(pct, 100)}%` : '0%' }}
+        />
+      </div>
+      <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+        <span>0%</span>
+        <span className="font-medium text-gray-700">{pct != null ? `${pct.toFixed(0)}%` : '—'}</span>
+        <span>100%</span>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard({ data }) {
   const isLoading = !data
   const ambient = data?.ambient
   const zones = data?.zones ?? [{ id: 1 }, { id: 2 }]
+  const tanks = data?.tanks ?? []
 
   return (
     <div className="space-y-8">
@@ -218,6 +253,19 @@ export default function Dashboard({ data }) {
             value={ambient?.light_lux != null ? Math.round(ambient.light_lux / 65535 * 100) : null} unit="%" label="Llum ambient" isLoading={isLoading} />
         </div>
       </section>
+
+      {tanks.length > 0 && (
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Dipòsits d'aigua
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {tanks.map(tank => (
+              <TankCard key={tank.tank_id} tank={tank} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">

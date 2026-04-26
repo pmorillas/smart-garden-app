@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Layers, History, Bell, CalendarDays, Cpu, ChevronLeft, ChevronRight, Leaf } from 'lucide-react'
+import { LayoutDashboard, Layers, History, Bell, CalendarDays, Cpu, ChevronLeft, ChevronRight, Leaf, Droplets } from 'lucide-react'
 import clsx from 'clsx'
 
 const NAV_ITEMS = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard',  end: true },
   { to: '/zones',    icon: Layers,          label: 'Zones' },
+  { to: '/tanks',    icon: Droplets,        label: 'Dipòsits' },
   { to: '/programs', icon: CalendarDays,    label: 'Programes' },
   { to: '/history',  icon: History,         label: 'Historial' },
   { to: '/alerts',   icon: Bell,            label: 'Alertes' },

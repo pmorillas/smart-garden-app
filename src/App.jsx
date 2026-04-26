@@ -8,6 +8,7 @@ import Zones from './pages/Zones'
 import Programs from './pages/Programs'
 import Alerts from './pages/Alerts'
 import Devices from './pages/Devices'
+import Tanks from './pages/Tanks'
 import Login from './pages/Login'
 
 function ProtectedRoute({ children }) {
@@ -29,6 +30,7 @@ function AppRoutes() {
         <Route path="/history" element={<History />} />
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/devices" element={<Devices />} />
+        <Route path="/tanks" element={<Tanks />} />
       </Routes>
     </AppLayout>
   )
