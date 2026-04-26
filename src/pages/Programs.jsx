@@ -316,6 +316,8 @@ function ProgramForm({ allZones, initial, onClose, onSaved }) {
 
   async function handleSave() {
     if (!form.name.trim()) { setError('El nom és obligatori'); return }
+    if (form.zones.length === 0) { setError('Selecciona almenys una zona'); return }
+    if (form.conditions.length === 0) { setError('Afegeix almenys una condició per activar el programa'); return }
     setSaving(true)
     setError(null)
     try {
