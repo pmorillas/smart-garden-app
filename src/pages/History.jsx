@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { fetchZones, getZoneHistory } from '../api/zones'
 import { getAmbientHistory } from '../api/sensors'
 
-const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444']
+const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#22c55e', '#f97316']
 const TRIGGER_LABELS = { manual: 'Manual', schedule: 'Horari', sensor: 'Sensor' }
 
 const HOUR_OPTIONS = [
@@ -17,17 +17,11 @@ const HOUR_OPTIONS = [
   { value: 168, label: '7 d' },
 ]
 
-const METRIC_OPTIONS = [
+const SERIES_OPTIONS = [
   { value: 'soil', label: 'Humitat terra' },
   { value: 'temperature', label: 'Temperatura' },
   { value: 'light', label: 'Lluminositat' },
 ]
-
-const METRIC_CONFIG = {
-  soil:        { unit: '%',    domain: [0, 100], color: null },
-  temperature: { unit: '°C',   domain: ['auto', 'auto'], color: '#ef4444' },
-  light:       { unit: ' lux', domain: ['auto', 'auto'], color: '#f59e0b' },
-}
 
 function TabGroup({ options, value, onChange }) {
   return (
@@ -39,6 +33,26 @@ function TabGroup({ options, value, onChange }) {
           className={clsx(
             'px-3 py-1.5 transition-colors min-h-[36px]',
             value === opt.value ? 'bg-green-500 text-white' : 'text-gray-500 hover:bg-gray-50'
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Multi-select toggle: mínim 1 actiu sempre
+function SeriesToggle({ options, value, onChange }) {
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+      {options.map(opt => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={clsx(
+            'px-3 py-1.5 transition-colors min-h-[36px]',
+            value.has(opt.value) ? 'bg-green-500 text-white' : 'text-gray-500 hover:bg-gray-50'
           )}
         >
           {opt.label}
@@ -60,36 +74,39 @@ function formatDatetime(isoString) {
   const today = new Date()
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
-
   const time = d.toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
   if (d.toDateString() === today.toDateString()) return `Avui ${time}`
   if (d.toDateString() === yesterday.toDateString()) return `Ahir ${time}`
   return d.toLocaleDateString('ca', { day: '2-digit', month: '2-digit' }) + ' ' + time
 }
 
-function toChartTime(isoString) {
-  return new Date(isoString).toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
+function toChartTime(ts) {
+  return new Date(ts).toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
 }
 
-function mergeReadings(historiesByZone) {
+function mergeAllData({ zoneHistories, ambientHistory, activeSeries }) {
   const map = new Map()
-  historiesByZone.forEach(({ zoneId, readings }) => {
-    readings.forEach(r => {
-      const key = Math.round(new Date(r.timestamp).getTime() / 60000) * 60000
-      if (!map.has(key)) map.set(key, { ts: key })
-      map.get(key)[`z${zoneId}`] = r.value
+  const bucket = (isoString) => {
+    const key = Math.round(new Date(isoString).getTime() / 60000) * 60000
+    if (!map.has(key)) map.set(key, { ts: key })
+    return map.get(key)
+  }
+
+  if (activeSeries.has('soil')) {
+    zoneHistories.forEach(({ zoneId, soil_readings }) => {
+      ;(soil_readings ?? []).forEach(r => { bucket(r.timestamp)[`z${zoneId}`] = r.value })
     })
-  })
+  }
+  if (activeSeries.has('temperature')) {
+    ;(ambientHistory?.temperature ?? []).forEach(r => { bucket(r.timestamp).temperature = r.value })
+  }
+  if (activeSeries.has('light')) {
+    ;(ambientHistory?.light_lux ?? []).forEach(r => { bucket(r.timestamp).light_lux = r.value })
+  }
+
   return Array.from(map.values())
     .sort((a, b) => a.ts - b.ts)
-    .map(pt => ({ ...pt, time: toChartTime(new Date(pt.ts).toISOString()) }))
-}
-
-function readingsToChartData(readings) {
-  return readings.map(r => ({
-    time: toChartTime(r.timestamp),
-    value: r.value,
-  }))
+    .map(pt => ({ ...pt, time: toChartTime(pt.ts) }))
 }
 
 export default function History() {
@@ -99,7 +116,16 @@ export default function History() {
   const [loading, setLoading] = useState(true)
   const [activeZone, setActiveZone] = useState('all')
   const [hours, setHours] = useState(24)
-  const [metric, setMetric] = useState('soil')
+  const [activeSeries, setActiveSeries] = useState(new Set(['soil']))
+
+  const toggleSeries = (val) => {
+    setActiveSeries(prev => {
+      const next = new Set(prev)
+      if (next.has(val) && next.size > 1) next.delete(val)
+      else next.add(val)
+      return next
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -109,53 +135,35 @@ export default function History() {
       .then(allZones => {
         if (cancelled) return
         setZones(allZones)
-
         return Promise.all([
-          ...allZones.map(z => getZoneHistory(z.id, hours).then(h => ({ ...h, zoneId: z.id, zoneName: z.name }))),
+          ...allZones.map(z =>
+            getZoneHistory(z.id, hours).then(h => ({ ...h, zoneId: z.id, zoneName: z.name }))
+          ),
           getAmbientHistory(hours),
         ]).then(results => {
           if (cancelled) return
-          const ambient = results[results.length - 1]
-          const histories = results.slice(0, allZones.length)
-          setZoneHistories(histories)
-          setAmbientHistory(ambient)
+          setAmbientHistory(results[results.length - 1])
+          setZoneHistories(results.slice(0, allZones.length))
           setLoading(false)
         })
       })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
+      .catch(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
   }, [hours])
 
-  const soilChartData = useMemo(() => {
-    if (!zoneHistories.length) return []
-    return mergeReadings(
-      zoneHistories.map(h => ({ zoneId: h.zoneId, readings: h.soil_readings ?? [] }))
-    )
-  }, [zoneHistories])
-
-  const temperatureChartData = useMemo(
-    () => readingsToChartData(ambientHistory?.temperature ?? []),
-    [ambientHistory]
+  const chartData = useMemo(
+    () => mergeAllData({ zoneHistories, ambientHistory, activeSeries }),
+    [zoneHistories, ambientHistory, activeSeries]
   )
 
-  const lightChartData = useMemo(
-    () => readingsToChartData(ambientHistory?.light_lux ?? []),
-    [ambientHistory]
-  )
-
-  const allEvents = useMemo(() => {
-    return zoneHistories
-      .flatMap(h => (h.watering_events ?? []).map(e => ({
-        ...e,
-        zone_id: h.zoneId,
-        zone_name: h.zoneName,
-      })))
+  const allEvents = useMemo(() =>
+    zoneHistories
+      .flatMap(h => (h.watering_events ?? []).map(e => ({ ...e, zone_id: h.zoneId, zone_name: h.zoneName })))
       .sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
-      .slice(0, 20)
-  }, [zoneHistories])
+      .slice(0, 20),
+    [zoneHistories]
+  )
 
   const zoneOptions = [
     { value: 'all', label: 'Totes' },
@@ -166,30 +174,33 @@ export default function History() {
     ? zones
     : zones.filter(z => String(z.id) === activeZone)
 
-  const isAmbient = metric !== 'soil'
-  const cfg = METRIC_CONFIG[metric]
+  const hasSoil    = activeSeries.has('soil')
+  const hasAmbient = activeSeries.has('temperature') || activeSeries.has('light')
+  const hasData    = chartData.length > 0
 
-  const chartData = metric === 'soil'
-    ? soilChartData
-    : metric === 'temperature'
-      ? temperatureChartData
-      : lightChartData
+  // Unitat de l'eix dret: si hi ha les dues mètriques ambientals, etiqueta genèrica
+  const rightUnit = activeSeries.has('temperature') && activeSeries.has('light')
+    ? ''
+    : activeSeries.has('temperature') ? '°C'
+    : activeSeries.has('light') ? ' lux'
+    : ''
 
-  const hasData = chartData.length > 0
+  const tooltipFormatter = (val, name) => {
+    if (name === 'temperature') return [`${val?.toFixed(1)}°C`, 'Temperatura']
+    if (name === 'light_lux')   return [`${val?.toFixed(0)} lux`, 'Lluminositat']
+    const zone = zones.find(z => `z${z.id}` === name)
+    return [`${val?.toFixed(1)}%`, zone?.name ?? name]
+  }
 
   return (
     <div className="space-y-6">
       {/* Chart */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <h2 className="font-semibold text-gray-900">
-            {metric === 'soil' ? 'Evolució de la humitat del terra'
-              : metric === 'temperature' ? 'Evolució de la temperatura'
-              : 'Evolució de la lluminositat'}
-          </h2>
+          <h2 className="font-semibold text-gray-900">Historial de sensors</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <TabGroup value={metric} onChange={v => { setMetric(v); setActiveZone('all') }} options={METRIC_OPTIONS} />
-            {metric === 'soil' && (
+            <SeriesToggle value={activeSeries} onChange={toggleSeries} options={SERIES_OPTIONS} />
+            {hasSoil && (
               <TabGroup value={activeZone} onChange={setActiveZone} options={zoneOptions} />
             )}
             <TabGroup
@@ -213,56 +224,97 @@ export default function History() {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <LineChart data={chartData} margin={{ top: 5, right: hasAmbient ? 60 : 20, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis
                 dataKey="time"
                 tick={{ fontSize: 11, fill: '#9ca3af' }}
                 interval="preserveStartEnd"
               />
+
+              {/* Eix esquerre: humitat terra % */}
               <YAxis
+                yAxisId="left"
                 tick={{ fontSize: 11, fill: '#9ca3af' }}
-                unit={cfg.unit}
-                domain={cfg.domain}
-                width={metric === 'light' ? 55 : 40}
+                unit="%"
+                domain={[0, 100]}
+                width={40}
+                hide={!hasSoil}
               />
+
+              {/* Eix dret: temperatura / lluminositat */}
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                unit={rightUnit}
+                domain={['auto', 'auto']}
+                width={hasAmbient ? 55 : 0}
+                hide={!hasAmbient}
+              />
+
               <Tooltip
                 contentStyle={{
-                  fontSize: 12, borderRadius: 10,
+                  fontSize: 12,
+                  borderRadius: 10,
                   border: '1px solid #e5e7eb',
                   boxShadow: '0 4px 6px -1px rgba(0,0,0,.05)',
                 }}
-                formatter={val => [`${val?.toFixed(metric === 'light' ? 0 : 1)}${cfg.unit}`]}
+                formatter={tooltipFormatter}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
 
-              {isAmbient ? (
+              {hasSoil && visibleZones.map((zone, i) => (
                 <Line
+                  key={zone.id}
+                  yAxisId="left"
                   type="monotone"
-                  dataKey="value"
-                  name={metric === 'temperature' ? 'Temperatura' : 'Lluminositat'}
-                  stroke={cfg.color}
+                  dataKey={`z${zone.id}`}
+                  name={zone.name}
+                  stroke={ZONE_COLORS[i % ZONE_COLORS.length]}
                   strokeWidth={2}
                   dot={false}
                   connectNulls={false}
                 />
-              ) : (
-                visibleZones.map((zone, i) => (
-                  <Line
-                    key={zone.id}
-                    type="monotone"
-                    dataKey={`z${zone.id}`}
-                    name={zone.name}
-                    stroke={ZONE_COLORS[i % ZONE_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    unit="%"
-                    connectNulls={false}
-                  />
-                ))
+              ))}
+
+              {activeSeries.has('temperature') && (
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="temperature"
+                  name="temperature"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={false}
+                  strokeDasharray="5 3"
+                  connectNulls={false}
+                />
+              )}
+
+              {activeSeries.has('light') && (
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="light_lux"
+                  name="light_lux"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dot={false}
+                  strokeDasharray="3 3"
+                  connectNulls={false}
+                />
               )}
             </LineChart>
           </ResponsiveContainer>
+        )}
+
+        {/* Llegenda d'eixos quan hi ha overlay */}
+        {hasSoil && hasAmbient && (
+          <div className="flex gap-4 mt-3 text-xs text-gray-400 justify-end">
+            <span>← eix esquerre: humitat (%)</span>
+            <span>eix dret: {activeSeries.has('temperature') && activeSeries.has('light') ? 'temperatura / llum' : activeSeries.has('temperature') ? 'temperatura (°C)' : 'lluminositat (lux)'} →</span>
+          </div>
         )}
       </div>
 
