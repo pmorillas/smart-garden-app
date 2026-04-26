@@ -24,3 +24,11 @@ export async function fetchMe() {
   const { data } = await httpClient.get('/api/auth/me')
   return data
 }
+
+export async function changePassword(currentPassword, newPassword) {
+  const { data } = await httpClient.put('/api/auth/me/password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+  return data
+}

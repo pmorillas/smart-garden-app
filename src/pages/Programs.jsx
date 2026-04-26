@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   CalendarDays, Plus, Trash2, Pencil, X, Check,
-  Loader2, ChevronDown, Clock, Droplets, Thermometer, Sun,
+  Loader2, Clock, Droplets, Thermometer, ChevronUp, ChevronDown,
+  Layers, GitMerge,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchZones } from '../api/zones'
@@ -156,18 +157,149 @@ function ConditionEditor({ condition, onChange, onRemove }) {
   )
 }
 
+// ── Zone selector in form ─────────────────────────────────────────────────────
+
+function ZoneSelector({ selectedZones, allZones, executionMode, onChangeZones, onChangeMode }) {
+  const toggle = (zoneId) => {
+    const exists = selectedZones.find(z => z.zone_id === zoneId)
+    if (exists) {
+      onChangeZones(selectedZones.filter(z => z.zone_id !== zoneId).map((z, i) => ({ ...z, order_index: i })))
+    } else {
+      onChangeZones([...selectedZones, { zone_id: zoneId, order_index: selectedZones.length, duration_override_seconds: null }])
+    }
+  }
+
+  const moveUp = (idx) => {
+    if (idx === 0) return
+    const arr = [...selectedZones]
+    ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
+    onChangeZones(arr.map((z, i) => ({ ...z, order_index: i })))
+  }
+
+  const moveDown = (idx) => {
+    if (idx === selectedZones.length - 1) return
+    const arr = [...selectedZones]
+    ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
+    onChangeZones(arr.map((z, i) => ({ ...z, order_index: i })))
+  }
+
+  const setDurationOverride = (idx, val) => {
+    const arr = [...selectedZones]
+    arr[idx] = { ...arr[idx], duration_override_seconds: val ? Number(val) : null }
+    onChangeZones(arr)
+  }
+
+  const ordered = [...selectedZones].sort((a, b) => a.order_index - b.order_index)
+
+  return (
+    <div className="space-y-3">
+      {/* Zone checkboxes */}
+      <div className="flex flex-wrap gap-2">
+        {allZones.map(z => {
+          const selected = !!selectedZones.find(s => s.zone_id === z.id)
+          return (
+            <button
+              key={z.id}
+              type="button"
+              onClick={() => toggle(z.id)}
+              className={clsx(
+                'px-3 py-1.5 rounded-xl text-sm font-medium border transition-colors',
+                selected
+                  ? 'bg-green-500 text-white border-green-500'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
+              )}
+            >
+              {z.name}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Execution mode (only if 2+ zones) */}
+      {selectedZones.length >= 2 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">Execució:</span>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            {[
+              { value: 'simultaneous', label: 'Simultàni', Icon: Layers },
+              { value: 'sequential',   label: 'Seqüencial', Icon: GitMerge },
+            ].map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onChangeMode(value)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-2 transition-colors',
+                  executionMode === value ? 'bg-green-500 text-white' : 'text-gray-500 hover:bg-gray-50'
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sequential order + per-zone duration override */}
+      {selectedZones.length >= 2 && (
+        <div className="space-y-1.5">
+          {ordered.map((pz, idx) => {
+            const zone = allZones.find(z => z.id === pz.zone_id)
+            return (
+              <div key={pz.zone_id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                {executionMode === 'sequential' && (
+                  <div className="flex flex-col gap-0.5">
+                    <button type="button" onClick={() => moveUp(idx)} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button type="button" onClick={() => moveDown(idx)} disabled={idx === ordered.length - 1} className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+                {executionMode === 'sequential' && (
+                  <span className="text-xs text-gray-400 w-4 text-center">{idx + 1}</span>
+                )}
+                <span className="text-sm text-gray-700 flex-1">{zone?.name ?? `Zona ${pz.zone_id}`}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-400">Durada:</span>
+                  <input
+                    type="number"
+                    placeholder="defecte"
+                    value={pz.duration_override_seconds ?? ''}
+                    min={5} max={3600}
+                    onChange={e => setDurationOverride(idx, e.target.value)}
+                    className="w-20 text-right text-xs px-2 py-1 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+                  />
+                  <span className="text-xs text-gray-400">s</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Program form (slide-over) ─────────────────────────────────────────────────
 
 const BLANK_FORM = {
   name: '',
   active: true,
+  execution_mode: 'simultaneous',
   condition_logic: 'AND',
   duration_seconds: 120,
   conditions: [],
+  zones: [],
 }
 
-function ProgramForm({ zoneId, initial, onClose, onSaved }) {
-  const [form, setForm] = useState(initial ?? { ...BLANK_FORM, zone_id: zoneId })
+function ProgramForm({ allZones, initial, onClose, onSaved }) {
+  const [form, setForm] = useState(initial ? {
+    ...initial,
+    zones: initial.zones ?? [],
+  } : { ...BLANK_FORM })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -187,15 +319,19 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
     setSaving(true)
     setError(null)
     try {
+      const payload = {
+        name: form.name,
+        active: form.active,
+        execution_mode: form.execution_mode,
+        condition_logic: form.condition_logic,
+        duration_seconds: form.duration_seconds,
+        conditions: form.conditions,
+        zones: form.zones,
+      }
       if (form.id) {
-        await updateProgram(form.id, {
-          name: form.name, active: form.active,
-          condition_logic: form.condition_logic,
-          duration_seconds: form.duration_seconds,
-          conditions: form.conditions,
-        })
+        await updateProgram(form.id, payload)
       } else {
-        await createProgram({ ...form, zone_id: zoneId })
+        await createProgram(payload)
       }
       onSaved()
       onClose()
@@ -212,28 +348,17 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 z-40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Panel — full screen on mobile, slide-over on desktop */}
-      <div className="fixed inset-x-0 bottom-0 md:inset-y-0 md:right-0 md:left-auto md:w-[480px] z-50 bg-white md:shadow-2xl flex flex-col max-h-[90vh] md:max-h-full rounded-t-2xl md:rounded-none overflow-hidden">
-        {/* Header */}
+      <div className="fixed inset-0 bg-black/30 z-40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 md:inset-y-0 md:right-0 md:left-auto md:w-[520px] z-50 bg-white md:shadow-2xl flex flex-col max-h-[90vh] md:max-h-full rounded-t-2xl md:rounded-none overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <h2 className="font-semibold text-gray-900">
             {form.id ? 'Editar programa' : 'Nou programa'}
           </h2>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"
-          >
+          <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {/* Name */}
           <div>
@@ -242,15 +367,27 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
               type="text"
               value={form.name}
               onChange={e => set('name', e.target.value)}
-              placeholder="Ex: Reg matinal zona 1"
+              placeholder="Ex: Reg matinal"
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            />
+          </div>
+
+          {/* Zones */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Zones</label>
+            <ZoneSelector
+              selectedZones={form.zones}
+              allZones={allZones}
+              executionMode={form.execution_mode}
+              onChangeZones={z => set('zones', z)}
+              onChangeMode={m => set('execution_mode', m)}
             />
           </div>
 
           {/* Duration */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium text-gray-700">Durada del reg</label>
+              <label className="text-sm font-medium text-gray-700">Durada per defecte</label>
               <span className="text-sm font-semibold text-green-600">{durationLabel}</span>
             </div>
             <input
@@ -318,7 +455,6 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-3 flex-shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">Actiu</span>
@@ -337,10 +473,7 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
             </button>
           </div>
           <div className="flex-1" />
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
             Cancel·lar
           </button>
           <button
@@ -359,7 +492,7 @@ function ProgramForm({ zoneId, initial, onClose, onSaved }) {
 
 // ── Program card ──────────────────────────────────────────────────────────────
 
-function ProgramCard({ program, onEdit, onDelete }) {
+function ProgramCard({ program, allZones, onEdit, onDelete }) {
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
@@ -368,6 +501,11 @@ function ProgramCard({ program, onEdit, onDelete }) {
     try { await deleteProgram(program.id); onDelete() }
     catch { setDeleting(false) }
   }
+
+  const programZones = (program.zones ?? [])
+    .sort((a, b) => a.order_index - b.order_index)
+    .map(pz => allZones.find(z => z.id === pz.zone_id))
+    .filter(Boolean)
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -381,11 +519,29 @@ function ProgramCard({ program, onEdit, onDelete }) {
             )}>
               {program.active ? 'Actiu' : 'Inactiu'}
             </span>
+            {programZones.length >= 2 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+                {program.execution_mode === 'sequential' ? 'Seqüencial' : 'Simultàni'}
+              </span>
+            )}
           </div>
+
+          {/* Zone chips */}
+          {programZones.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {programZones.map(z => (
+                <span key={z.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                  {z.name}
+                </span>
+              ))}
+            </div>
+          )}
+
           <p className="text-xs text-gray-400 mt-1">
             Durada: {program.duration_seconds < 60 ? `${program.duration_seconds} s` : `${Math.round(program.duration_seconds / 60)} min`}
             {program.conditions.length > 1 && ` · Lògica: ${program.condition_logic}`}
           </p>
+
           {program.conditions.length > 0 && (
             <ul className="mt-2 space-y-1">
               {program.conditions.map((c, i) => (
@@ -425,24 +581,25 @@ function ProgramCard({ program, onEdit, onDelete }) {
 export default function Programs() {
   const [zones, setZones] = useState([])
   const [programs, setPrograms] = useState([])
-  const [selectedZone, setSelectedZone] = useState(null)
+  const [filterZone, setFilterZone] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [formState, setFormState] = useState(null) // null | { initial }
+  const [formState, setFormState] = useState(null)
 
   const load = useCallback(async () => {
     try {
       const [z, p] = await Promise.all([fetchZones(), fetchPrograms()])
       setZones(z)
       setPrograms(p)
-      if (!selectedZone && z.length > 0) setSelectedZone(z[0].id)
     } catch { /* silent */ } finally {
       setLoading(false)
     }
-  }, [selectedZone])
+  }, [])
 
   useEffect(() => { load() }, []) // eslint-disable-line
 
-  const filtered = programs.filter(p => p.zone_id === selectedZone)
+  const filtered = filterZone
+    ? programs.filter(p => (p.zones ?? []).some(pz => pz.zone_id === filterZone))
+    : programs
 
   if (loading) {
     return (
@@ -454,43 +611,34 @@ export default function Programs() {
 
   return (
     <div className="space-y-6">
-      {/* Zone tabs */}
-      {zones.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
-          {zones.map(z => (
-            <button
-              key={z.id}
-              onClick={() => setSelectedZone(z.id)}
-              className={clsx(
-                'px-4 py-2 rounded-xl text-sm font-medium transition-colors min-h-[44px]',
-                selectedZone === z.id
-                  ? 'bg-green-500 text-white shadow-sm'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:border-green-400'
-              )}
-            >
-              {z.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Programs list */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 className="font-semibold text-gray-900">Programes de reg</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {zones.find(z => z.id === selectedZone)?.name}
-            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{programs.length} programa{programs.length !== 1 ? 's' : ''}</p>
           </div>
-          <button
-            onClick={() => setFormState({ initial: null })}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nou programa</span>
-            <span className="sm:hidden">Nou</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Zone filter */}
+            {zones.length > 1 && (
+              <select
+                value={filterZone ?? ''}
+                onChange={e => setFilterZone(e.target.value ? Number(e.target.value) : null)}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+              >
+                <option value="">Totes les zones</option>
+                {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+              </select>
+            )}
+            <button
+              onClick={() => setFormState({ initial: null })}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Nou programa</span>
+              <span className="sm:hidden">Nou</span>
+            </button>
+          </div>
         </div>
 
         <div className="p-4 space-y-3">
@@ -505,6 +653,7 @@ export default function Programs() {
               <ProgramCard
                 key={p.id}
                 program={p}
+                allZones={zones}
                 onEdit={prog => setFormState({ initial: prog })}
                 onDelete={load}
               />
@@ -513,10 +662,9 @@ export default function Programs() {
         </div>
       </div>
 
-      {/* Form slide-over */}
       {formState !== null && (
         <ProgramForm
-          zoneId={selectedZone}
+          allZones={zones}
           initial={formState.initial}
           onClose={() => setFormState(null)}
           onSaved={load}
