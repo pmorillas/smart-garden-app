@@ -1,27 +1,51 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
-
+import { Navigate, Routes, Route } from 'react-router-dom'
+import AppLayout from './components/layout/AppLayout'
+import { useWebSocket } from './hooks/useWebSocket'
+import { useAuth } from './hooks/useAuth.jsx'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Zones from './pages/Zones'
+import Programs from './pages/Programs'
 import Alerts from './pages/Alerts'
+import Devices from './pages/Devices'
+import Login from './pages/Login'
+
+function ProtectedRoute({ children }) {
+  const { user, isLoading } = useAuth()
+  if (isLoading) return null
+  if (!user) return <Navigate to="/login" replace />
+  return children
+}
+
+function AppRoutes() {
+  const { data, status } = useWebSocket()
+
+  return (
+    <AppLayout wsStatus={status}>
+      <Routes>
+        <Route path="/" element={<Dashboard data={data} />} />
+        <Route path="/zones" element={<Zones />} />
+        <Route path="/programs" element={<Programs />} />
+        <Route path="/history" element={<History />} />
+        <Route path="/alerts" element={<Alerts />} />
+        <Route path="/devices" element={<Devices />} />
+      </Routes>
+    </AppLayout>
+  )
+}
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <nav className="bg-green-700 text-white px-6 py-3 flex gap-6">
-        <NavLink to="/">Dashboard</NavLink>
-        <NavLink to="/history">Historial</NavLink>
-        <NavLink to="/zones">Zones</NavLink>
-        <NavLink to="/alerts">Alertes</NavLink>
-      </nav>
-      <main className="p-6">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/zones" element={<Zones />} />
-          <Route path="/alerts" element={<Alerts />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <AppRoutes />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
   )
 }
