@@ -215,7 +215,7 @@ export default function Dashboard({ data }) {
           <StatCard icon={Thermometer} iconBg="bg-orange-400"
             value={ambient?.temp?.toFixed(1)} unit="°C" label="Temperatura" isLoading={isLoading} />
           <StatCard icon={Sun} iconBg="bg-yellow-400"
-            value={ambient?.light_lux != null ? Math.round(ambient.light_lux) : null} unit="lux" label="Llum ambient" isLoading={isLoading} />
+            value={ambient?.light_lux != null ? Math.round(ambient.light_lux / 65535 * 100) : null} unit="%" label="Llum ambient" isLoading={isLoading} />
         </div>
       </section>
 
