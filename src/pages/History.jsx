@@ -1,14 +1,33 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ReferenceLine,
+  CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { Loader2 } from 'lucide-react'
 import clsx from 'clsx'
-import { getZoneHistory } from '../api/zones'
+import { fetchZones, getZoneHistory } from '../api/zones'
+import { getAmbientHistory } from '../api/sensors'
 
-const ZONE_COLORS = ['#3b82f6', '#06b6d4']
+const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444']
 const TRIGGER_LABELS = { manual: 'Manual', schedule: 'Horari', sensor: 'Sensor' }
+
+const HOUR_OPTIONS = [
+  { value: 24, label: '24 h' },
+  { value: 48, label: '48 h' },
+  { value: 168, label: '7 d' },
+]
+
+const METRIC_OPTIONS = [
+  { value: 'soil', label: 'Humitat terra' },
+  { value: 'temperature', label: 'Temperatura' },
+  { value: 'light', label: 'Lluminositat' },
+]
+
+const METRIC_CONFIG = {
+  soil:        { unit: '%',    domain: [0, 100], color: null },
+  temperature: { unit: '°C',   domain: ['auto', 'auto'], color: '#ef4444' },
+  light:       { unit: ' lux', domain: ['auto', 'auto'], color: '#f59e0b' },
+}
 
 function TabGroup({ options, value, onChange }) {
   return (
@@ -29,11 +48,6 @@ function TabGroup({ options, value, onChange }) {
   )
 }
 
-function formatTs(isoString) {
-  const d = new Date(isoString)
-  return d.toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
-}
-
 function formatDuration(seconds) {
   if (!seconds) return '—'
   if (seconds < 60) return `${seconds} s`
@@ -47,18 +61,18 @@ function formatDatetime(isoString) {
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
 
-  const isToday = d.toDateString() === today.toDateString()
-  const isYesterday = d.toDateString() === yesterday.toDateString()
-
   const time = d.toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
-  if (isToday) return `Avui ${time}`
-  if (isYesterday) return `Ahir ${time}`
+  if (d.toDateString() === today.toDateString()) return `Avui ${time}`
+  if (d.toDateString() === yesterday.toDateString()) return `Ahir ${time}`
   return d.toLocaleDateString('ca', { day: '2-digit', month: '2-digit' }) + ' ' + time
+}
+
+function toChartTime(isoString) {
+  return new Date(isoString).toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })
 }
 
 function mergeReadings(historiesByZone) {
   const map = new Map()
-
   historiesByZone.forEach(({ zoneId, readings }) => {
     readings.forEach(r => {
       const key = Math.round(new Date(r.timestamp).getTime() / 60000) * 60000
@@ -66,40 +80,47 @@ function mergeReadings(historiesByZone) {
       map.get(key)[`z${zoneId}`] = r.value
     })
   })
-
   return Array.from(map.values())
     .sort((a, b) => a.ts - b.ts)
-    .map(pt => ({
-      ...pt,
-      time: new Date(pt.ts).toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' }),
-    }))
+    .map(pt => ({ ...pt, time: toChartTime(new Date(pt.ts).toISOString()) }))
 }
 
-const HOUR_OPTIONS = [
-  { value: 24, label: '24 h' },
-  { value: 48, label: '48 h' },
-  { value: 168, label: '7 d' },
-]
+function readingsToChartData(readings) {
+  return readings.map(r => ({
+    time: toChartTime(r.timestamp),
+    value: r.value,
+  }))
+}
 
 export default function History() {
+  const [zones, setZones] = useState([])
   const [zoneHistories, setZoneHistories] = useState([])
+  const [ambientHistory, setAmbientHistory] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeZone, setActiveZone] = useState('all')
   const [hours, setHours] = useState(24)
+  const [metric, setMetric] = useState('soil')
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
 
-    Promise.all([getZoneHistory(1, hours), getZoneHistory(2, hours)])
-      .then(([h1, h2]) => {
-        if (!cancelled) {
-          setZoneHistories([
-            { zoneId: 1, ...h1 },
-            { zoneId: 2, ...h2 },
-          ])
+    fetchZones()
+      .then(allZones => {
+        if (cancelled) return
+        setZones(allZones)
+
+        return Promise.all([
+          ...allZones.map(z => getZoneHistory(z.id, hours).then(h => ({ ...h, zoneId: z.id, zoneName: z.name }))),
+          getAmbientHistory(hours),
+        ]).then(results => {
+          if (cancelled) return
+          const ambient = results[results.length - 1]
+          const histories = results.slice(0, allZones.length)
+          setZoneHistories(histories)
+          setAmbientHistory(ambient)
           setLoading(false)
-        }
+        })
       })
       .catch(() => {
         if (!cancelled) setLoading(false)
@@ -108,28 +129,51 @@ export default function History() {
     return () => { cancelled = true }
   }, [hours])
 
-  const chartData = useMemo(() => {
+  const soilChartData = useMemo(() => {
     if (!zoneHistories.length) return []
     return mergeReadings(
       zoneHistories.map(h => ({ zoneId: h.zoneId, readings: h.soil_readings ?? [] }))
     )
   }, [zoneHistories])
 
+  const temperatureChartData = useMemo(
+    () => readingsToChartData(ambientHistory?.temperature ?? []),
+    [ambientHistory]
+  )
+
+  const lightChartData = useMemo(
+    () => readingsToChartData(ambientHistory?.light_lux ?? []),
+    [ambientHistory]
+  )
+
   const allEvents = useMemo(() => {
     return zoneHistories
-      .flatMap(h => (h.watering_events ?? []).map(e => ({ ...e, zone_id: h.zoneId })))
+      .flatMap(h => (h.watering_events ?? []).map(e => ({
+        ...e,
+        zone_id: h.zoneId,
+        zone_name: h.zoneName,
+      })))
       .sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
       .slice(0, 20)
   }, [zoneHistories])
 
   const zoneOptions = [
     { value: 'all', label: 'Totes' },
-    ...zoneHistories.map(h => ({ value: String(h.zoneId), label: `Zona ${h.zoneId}` })),
+    ...zones.map(z => ({ value: String(z.id), label: z.name })),
   ]
 
   const visibleZones = activeZone === 'all'
-    ? zoneHistories.map(h => h.zoneId)
-    : [parseInt(activeZone)]
+    ? zones
+    : zones.filter(z => String(z.id) === activeZone)
+
+  const isAmbient = metric !== 'soil'
+  const cfg = METRIC_CONFIG[metric]
+
+  const chartData = metric === 'soil'
+    ? soilChartData
+    : metric === 'temperature'
+      ? temperatureChartData
+      : lightChartData
 
   const hasData = chartData.length > 0
 
@@ -138,9 +182,16 @@ export default function History() {
       {/* Chart */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <h2 className="font-semibold text-gray-900">Evolució de la humitat del terra</h2>
+          <h2 className="font-semibold text-gray-900">
+            {metric === 'soil' ? 'Evolució de la humitat del terra'
+              : metric === 'temperature' ? 'Evolució de la temperatura'
+              : 'Evolució de la lluminositat'}
+          </h2>
           <div className="flex flex-wrap items-center gap-2">
-            <TabGroup value={activeZone} onChange={setActiveZone} options={zoneOptions} />
+            <TabGroup value={metric} onChange={v => { setMetric(v); setActiveZone('all') }} options={METRIC_OPTIONS} />
+            {metric === 'soil' && (
+              <TabGroup value={activeZone} onChange={setActiveZone} options={zoneOptions} />
+            )}
             <TabGroup
               value={String(hours)}
               onChange={v => setHours(Number(v))}
@@ -171,7 +222,9 @@ export default function History() {
               />
               <YAxis
                 tick={{ fontSize: 11, fill: '#9ca3af' }}
-                unit="%" domain={[0, 100]} width={40}
+                unit={cfg.unit}
+                domain={cfg.domain}
+                width={metric === 'light' ? 55 : 40}
               />
               <Tooltip
                 contentStyle={{
@@ -179,22 +232,35 @@ export default function History() {
                   border: '1px solid #e5e7eb',
                   boxShadow: '0 4px 6px -1px rgba(0,0,0,.05)',
                 }}
-                formatter={(val) => [`${val?.toFixed(1)}%`]}
+                formatter={val => [`${val?.toFixed(metric === 'light' ? 0 : 1)}${cfg.unit}`]}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              {visibleZones.map((zoneId, i) => (
+
+              {isAmbient ? (
                 <Line
-                  key={zoneId}
                   type="monotone"
-                  dataKey={`z${zoneId}`}
-                  name={`Zona ${zoneId}`}
-                  stroke={ZONE_COLORS[i % ZONE_COLORS.length]}
+                  dataKey="value"
+                  name={metric === 'temperature' ? 'Temperatura' : 'Lluminositat'}
+                  stroke={cfg.color}
                   strokeWidth={2}
                   dot={false}
-                  unit="%"
                   connectNulls={false}
                 />
-              ))}
+              ) : (
+                visibleZones.map((zone, i) => (
+                  <Line
+                    key={zone.id}
+                    type="monotone"
+                    dataKey={`z${zone.id}`}
+                    name={zone.name}
+                    stroke={ZONE_COLORS[i % ZONE_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    unit="%"
+                    connectNulls={false}
+                  />
+                ))
+              )}
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -231,7 +297,7 @@ export default function History() {
                     <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDatetime(ev.started_at)}</td>
                     <td className="px-4 md:px-6 py-3.5">
                       <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                        Zona {ev.zone_id}
+                        {ev.zone_name}
                       </span>
                     </td>
                     <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDuration(ev.duration_seconds)}</td>
