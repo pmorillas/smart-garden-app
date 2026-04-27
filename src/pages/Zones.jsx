@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import { fetchZones, createZone, updateZone, updateZoneConfig, deleteZone } from '../api/zones'
 import { fetchDevices, assignZoneDevice } from '../api/devices'
 import { fetchTanks } from '../api/tanks'
-import { fetchPeripherals, assignZoneRelay, assignZoneSoil } from '../api/peripherals'
+import { fetchPeripherals, assignZoneRelay, assignZoneSoil, pushHardwareConfig } from '../api/peripherals'
 
 // ─── Shared components ────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
   const [soilIds,   setSoilIds]   = useState(zone.soil_peripheral_ids ?? [])
   const [aggMode,   setAggMode]   = useState(zone.soil_aggregation_mode ?? 'AVG')
   const [saving,    setSaving]    = useState(false)
-  const [status,    setStatus]    = useState(null) // 'ok' | 'error'
+  const [status,    setStatus]    = useState(null) // 'ok' | 'error' | 'pushing'
 
   // Load peripherals when device changes
   useEffect(() => {
@@ -198,6 +198,12 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
       }
 
       await Promise.all(calls)
+
+      if (newDeviceId) {
+        setStatus('pushing')
+        await pushHardwareConfig(newDeviceId)
+      }
+
       setStatus('ok')
       onDeviceChanged()
       setTimeout(() => setStatus(null), 3000)
@@ -282,8 +288,9 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
       {/* Save hardware */}
       <div className="pt-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
-          {status === 'ok' && <><CheckCircle className="w-4 h-4 text-green-500" /><span className="text-green-600">Desat</span></>}
-          {status === 'error' && <><AlertCircle className="w-4 h-4 text-red-500" /><span className="text-red-600">Error en desar</span></>}
+          {status === 'ok'     && <><CheckCircle className="w-4 h-4 text-green-500" /><span className="text-green-600">Desat i enviat</span></>}
+          {status === 'error'  && <><AlertCircle className="w-4 h-4 text-red-500"   /><span className="text-red-600">Error en desar</span></>}
+          {status === 'pushing'&& <><Loader2 className="w-4 h-4 animate-spin text-amber-500" /><span className="text-amber-600">Enviant a ESP32…</span></>}
         </div>
         <button onClick={handleSave} disabled={saving}
           className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">
