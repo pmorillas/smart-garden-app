@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
       setUser(null)
       return
     }
+    setUser(undefined)
     fetchMe()
       .then(setUser)
       .catch(() => {
