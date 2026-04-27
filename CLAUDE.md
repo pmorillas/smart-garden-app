@@ -1,5 +1,12 @@
 # Smart Garden — Frontend App
 
+## Idioma
+
+- **Comunicació amb l'usuari:** català
+- **Tot artefacte tècnic (commits, comentaris, noms de variables):** anglès
+
+---
+
 ## Stack
 
 - **Build tool:** Vite
