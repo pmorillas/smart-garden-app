@@ -1,7 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu, Wifi, WifiOff, Pencil, Trash2, Check, X, Loader2, Layers } from 'lucide-react'
+import { Cpu, Wifi, WifiOff, Pencil, Trash2, Check, X, Loader2, Layers, Timer } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchDevices, updateDevice, deleteDevice } from '../api/devices'
+
+const POLL_OPTIONS = [
+  { label: '30 s', value: 30 },
+  { label: '1 min', value: 60 },
+  { label: '2 min', value: 120 },
+  { label: '5 min', value: 300 },
+  { label: '10 min', value: 600 },
+  { label: '15 min', value: 900 },
+  { label: '30 min', value: 1800 },
+]
 
 function timeAgo(isoString) {
   if (!isoString) return null
@@ -17,6 +27,7 @@ function DeviceCard({ device, onUpdated, onDeleted }) {
   const [name, setName] = useState(device.name)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [savingInterval, setSavingInterval] = useState(false)
 
   async function handleSaveName() {
     if (!name.trim() || name === device.name) { setEditing(false); return }
@@ -30,6 +41,18 @@ function DeviceCard({ device, onUpdated, onDeleted }) {
     }
   }
 
+  async function handlePollIntervalChange(e) {
+    const newInterval = parseInt(e.target.value, 10)
+    if (newInterval === device.poll_interval_seconds) return
+    setSavingInterval(true)
+    try {
+      const updated = await updateDevice(device.id, { poll_interval_seconds: newInterval })
+      onUpdated(updated)
+    } catch { /* silent */ } finally {
+      setSavingInterval(false)
+    }
+  }
+
   async function handleDelete() {
     if (!confirm(`Eliminar "${device.name}"? Les zones assignades quedaran sense dispositiu.`)) return
     setDeleting(true)
@@ -38,6 +61,12 @@ function DeviceCard({ device, onUpdated, onDeleted }) {
       onDeleted(device.id)
     } catch { setDeleting(false) }
   }
+
+  const currentInterval = device.poll_interval_seconds ?? 300
+  const nearestOption = POLL_OPTIONS.find(o => o.value === currentInterval)?.value
+    ?? POLL_OPTIONS.reduce((a, b) =>
+        Math.abs(b.value - currentInterval) < Math.abs(a.value - currentInterval) ? b : a
+      ).value
 
   return (
     <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
@@ -121,6 +150,37 @@ function DeviceCard({ device, onUpdated, onDeleted }) {
         <div>
           <p className="text-xs text-gray-400 mb-0.5">ID intern</p>
           <p className="font-medium text-gray-700">#{device.id}</p>
+        </div>
+      </div>
+
+      {/* Polling interval */}
+      <div className="px-6 py-4 border-t border-gray-100">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Timer className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-gray-700">Freqüència de lectura</p>
+              <p className="text-xs text-gray-400">Cada quant s'obtenen dades dels sensors</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {savingInterval && <Loader2 className="w-3.5 h-3.5 animate-spin text-green-500" />}
+            <select
+              value={nearestOption}
+              onChange={handlePollIntervalChange}
+              disabled={savingInterval}
+              className={clsx(
+                'text-sm font-medium rounded-lg border px-3 py-1.5 outline-none transition-colors cursor-pointer',
+                savingInterval
+                  ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed'
+                  : 'border-gray-200 text-gray-700 bg-white hover:border-green-400 focus:border-green-500 focus:ring-1 focus:ring-green-200'
+              )}
+            >
+              {POLL_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
