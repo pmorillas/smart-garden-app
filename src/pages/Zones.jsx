@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Droplets, Settings, Sliders, Cpu, Loader2, CheckCircle,
+  Droplets, Settings, Cpu, Loader2, CheckCircle,
   AlertCircle, Plus, Trash2, X, WifiOff, CircuitBoard,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -312,8 +312,6 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
       humidity_max:      zone.config?.humidity_max      ?? 80,
       max_temp_to_water: zone.config?.max_temp_to_water ?? 38,
       cooldown_hours:    zone.config?.cooldown_hours    ?? 2,
-      soil_dry_value:    zone.config?.soil_dry_value    ?? 3800,
-      soil_wet_value:    zone.config?.soil_wet_value    ?? 1200,
     })
   }, [zone])
 
@@ -330,8 +328,6 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
           humidity_max:      form.humidity_max,
           max_temp_to_water: form.max_temp_to_water,
           cooldown_hours:    form.cooldown_hours,
-          soil_dry_value:    form.soil_dry_value,
-          soil_wet_value:    form.soil_wet_value,
         }),
       ])
       setStatus('ok')
@@ -431,14 +427,7 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
           <NumberField value={form.max_temp_to_water} onChange={v => set('max_temp_to_water', v)} unit="°C" min={0} max={60} />
         </FieldRow>
 
-        {/* Calibration */}
-        <SectionHeader icon={Sliders} label="Calibratge del sensor" />
-        <FieldRow label="Valor ADC en sec (aire)">
-          <NumberField value={form.soil_dry_value} onChange={v => set('soil_dry_value', v)} min={0} max={4095} />
-        </FieldRow>
-        <FieldRow label="Valor ADC en mullat (aigua)">
-          <NumberField value={form.soil_wet_value} onChange={v => set('soil_wet_value', v)} min={0} max={4095} />
-        </FieldRow>
+
       </div>
 
       {/* Footer */}
