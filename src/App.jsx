@@ -9,6 +9,7 @@ import Programs from './pages/Programs'
 import Alerts from './pages/Alerts'
 import Devices from './pages/Devices'
 import Tanks from './pages/Tanks'
+import Peripherals from './pages/Peripherals'
 import Login from './pages/Login'
 
 function ProtectedRoute({ children }) {
@@ -31,6 +32,7 @@ function AppRoutes() {
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/tanks" element={<Tanks />} />
+        <Route path="/peripherals" element={<Peripherals />} />
       </Routes>
     </AppLayout>
   )
