@@ -15,7 +15,7 @@ export default function AppLayout({ children, wsStatus }) {
         collapsed ? 'md:ml-[72px]' : 'md:ml-[260px]'
       )}>
         <Header wsStatus={wsStatus} />
-        <main className="flex-1 p-4 md:p-6 max-w-7xl w-full pb-20 md:pb-6">
+        <main className="flex-1 p-4 md:p-6 w-full pb-20 md:pb-6">
           {children}
         </main>
       </div>
