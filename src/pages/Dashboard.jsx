@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { Droplets, Thermometer, Sun, Play, Square, Clock, WifiOff, Loader2 } from 'lucide-react'
+import { Droplets, Thermometer, Sun, Play, Square, Clock, WifiOff, Loader2, Wind } from 'lucide-react'
 import clsx from 'clsx'
 import httpClient from '../api/httpClient'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function StatCard({ icon: Icon, iconBg, value, unit, label, isLoading }) {
   return (
@@ -22,7 +20,7 @@ function StatCard({ icon: Icon, iconBg, value, unit, label, isLoading }) {
   )
 }
 
-function HumidityBar({ value }) {
+function HumidityBar({ value, label }) {
   const color = value == null ? 'bg-gray-200'
     : value < 30 ? 'bg-red-400'
     : value < 60 ? 'bg-yellow-400'
@@ -31,7 +29,7 @@ function HumidityBar({ value }) {
   return (
     <div className="mt-3">
       <div className="flex justify-between text-xs text-gray-500 mb-1.5">
-        <span>Humitat terra</span>
+        <span>{label ?? 'Humitat terra'}</span>
         <span className="font-medium">{value != null ? `${value.toFixed(1)}%` : '—'}</span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -96,7 +94,8 @@ function ZoneCard({ zone, isLoading }) {
   const [error, setError] = useState(null)
 
   const isWatering = zone?.is_watering ?? false
-  const humidity = zone?.soil_humidity_avg ?? null
+  const humidityValues = zone?.soil_humidity_values ?? []
+  const humidityAvg = zone?.soil_humidity_avg ?? null
   const lastWatered = zone?.last_watered_at ? new Date(zone.last_watered_at) : null
 
   async function handleWater(durationSeconds) {
@@ -123,6 +122,10 @@ function ZoneCard({ zone, isLoading }) {
       setActionLoading(false)
     }
   }
+
+  const humidityBars = humidityValues.length > 1
+    ? humidityValues.map((v, i) => ({ value: v, label: `Sensor ${i + 1}` }))
+    : [{ value: humidityAvg, label: 'Humitat terra' }]
 
   return (
     <>
@@ -183,7 +186,9 @@ function ZoneCard({ zone, isLoading }) {
           <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-1.5">{error}</p>
         )}
 
-        <HumidityBar value={humidity} />
+        {humidityBars.map((bar, i) => (
+          <HumidityBar key={i} value={bar.value} label={bar.label} />
+        ))}
 
         {lastWatered && (
           <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-3">
@@ -251,13 +256,11 @@ export default function Dashboard({ data }) {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
           Lectures de sensors
         </h2>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard icon={Droplets} iconBg="bg-blue-500"
-            value={zones[0]?.soil_humidity_avg?.toFixed(1)} unit="%" label={`Humitat ${zones[0]?.name || 'Zona 1'}`} isLoading={isLoading} />
-          <StatCard icon={Droplets} iconBg="bg-cyan-500"
-            value={zones[1]?.soil_humidity_avg?.toFixed(1)} unit="%" label={`Humitat ${zones[1]?.name || 'Zona 2'}`} isLoading={isLoading} />
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
           <StatCard icon={Thermometer} iconBg="bg-orange-400"
             value={ambient?.temp?.toFixed(1)} unit="°C" label="Temperatura" isLoading={isLoading} />
+          <StatCard icon={Wind} iconBg="bg-sky-400"
+            value={ambient?.humidity?.toFixed(1)} unit="%" label="Humitat exterior" isLoading={isLoading} />
           <StatCard icon={Sun} iconBg="bg-yellow-400"
             value={ambient?.light_lux != null ? Math.round(ambient.light_lux) : null} unit="lux" label={lightCondition(ambient?.light_lux)} isLoading={isLoading} />
         </div>

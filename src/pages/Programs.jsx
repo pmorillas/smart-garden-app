@@ -613,56 +613,52 @@ export default function Programs() {
 
   return (
     <div className="space-y-6">
-      {/* Programs list */}
-      <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="font-semibold text-gray-900">Programes de reg</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{programs.length} programa{programs.length !== 1 ? 's' : ''}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Zone filter */}
-            {zones.length > 1 && (
-              <select
-                value={filterZone ?? ''}
-                onChange={e => setFilterZone(e.target.value ? Number(e.target.value) : null)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
-              >
-                <option value="">Totes les zones</option>
-                {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
-              </select>
-            )}
-            <button
-              onClick={() => setFormState({ initial: null })}
-              className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Nou programa</span>
-              <span className="sm:hidden">Nou</span>
-            </button>
-          </div>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Programes de reg</h2>
+          <p className="text-sm text-gray-500 mt-0.5">{programs.length} programa{programs.length !== 1 ? 's' : ''} configurats</p>
         </div>
-
-        <div className="p-4 space-y-3">
-          {filtered.length === 0 ? (
-            <div className="py-10 text-center">
-              <CalendarDays className="w-8 h-8 text-gray-200 mx-auto mb-3" />
-              <p className="text-sm font-medium text-gray-400">Cap programa configurat</p>
-              <p className="text-xs text-gray-300 mt-1">Crea un programa per automatitzar el reg</p>
-            </div>
-          ) : (
-            filtered.map(p => (
-              <ProgramCard
-                key={p.id}
-                program={p}
-                allZones={zones}
-                onEdit={prog => setFormState({ initial: prog })}
-                onDelete={load}
-              />
-            ))
+        <div className="flex items-center gap-3">
+          {zones.length > 1 && (
+            <select
+              value={filterZone ?? ''}
+              onChange={e => setFilterZone(e.target.value ? Number(e.target.value) : null)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            >
+              <option value="">Totes les zones</option>
+              {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+            </select>
           )}
+          <button
+            onClick={() => setFormState({ initial: null })}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Nou programa</span>
+            <span className="sm:hidden">Nou</span>
+          </button>
         </div>
       </div>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-14 text-center">
+          <CalendarDays className="w-8 h-8 text-gray-200 mx-auto mb-3" />
+          <p className="text-sm font-medium text-gray-400">Cap programa configurat</p>
+          <p className="text-xs text-gray-300 mt-1">Crea un programa per automatitzar el reg</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(p => (
+            <ProgramCard
+              key={p.id}
+              program={p}
+              allZones={zones}
+              onEdit={prog => setFormState({ initial: prog })}
+              onDelete={load}
+            />
+          ))}
+        </div>
+      )}
 
       {formState !== null && (
         <ProgramForm

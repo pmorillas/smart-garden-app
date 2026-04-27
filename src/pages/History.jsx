@@ -19,6 +19,7 @@ const HOUR_OPTIONS = [
 
 const SERIES_OPTIONS = [
   { value: 'soil', label: 'Humitat terra' },
+  { value: 'humidity', label: 'Humitat exterior' },
   { value: 'temperature', label: 'Temperatura' },
   { value: 'light', label: 'Lluminositat' },
 ]
@@ -96,6 +97,9 @@ function mergeAllData({ zoneHistories, ambientHistory, activeSeries }) {
     zoneHistories.forEach(({ zoneId, soil_readings }) => {
       ;(soil_readings ?? []).forEach(r => { bucket(r.timestamp)[`z${zoneId}`] = r.value })
     })
+  }
+  if (activeSeries.has('humidity')) {
+    ;(ambientHistory?.ambient_humidity ?? []).forEach(r => { bucket(r.timestamp).ambient_humidity = r.value })
   }
   if (activeSeries.has('temperature')) {
     ;(ambientHistory?.temperature ?? []).forEach(r => { bucket(r.timestamp).temperature = r.value })
@@ -175,19 +179,21 @@ export default function History() {
     : zones.filter(z => String(z.id) === activeZone)
 
   const hasSoil    = activeSeries.has('soil')
-  const hasAmbient = activeSeries.has('temperature') || activeSeries.has('light')
+  const hasAmbient = activeSeries.has('humidity') || activeSeries.has('temperature') || activeSeries.has('light')
   const hasData    = chartData.length > 0
 
-  // Unitat de l'eix dret: si hi ha les dues mètriques ambientals, etiqueta genèrica
-  const rightUnit = activeSeries.has('temperature') && activeSeries.has('light')
+  const ambientCount = [activeSeries.has('humidity'), activeSeries.has('temperature'), activeSeries.has('light')].filter(Boolean).length
+  const rightUnit = ambientCount > 1
     ? ''
     : activeSeries.has('temperature') ? '°C'
+    : activeSeries.has('humidity') ? '%'
     : activeSeries.has('light') ? 'lux'
     : ''
 
   const tooltipFormatter = (val, name) => {
-    if (name === 'temperature') return [`${val?.toFixed(1)}°C`, 'Temperatura']
-    if (name === 'light_lux')   return [`${Math.round(val)} lux`, 'Lluminositat']
+    if (name === 'ambient_humidity') return [`${val?.toFixed(1)}%`, 'Humitat exterior']
+    if (name === 'temperature')      return [`${val?.toFixed(1)}°C`, 'Temperatura']
+    if (name === 'light_lux')        return [`${Math.round(val)} lux`, 'Lluminositat']
     const zone = zones.find(z => `z${z.id}` === name)
     return [`${val?.toFixed(1)}%`, zone?.name ?? name]
   }
@@ -278,6 +284,20 @@ export default function History() {
                 />
               ))}
 
+              {activeSeries.has('humidity') && (
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="ambient_humidity"
+                  name="ambient_humidity"
+                  stroke="#0ea5e9"
+                  strokeWidth={2}
+                  dot={false}
+                  strokeDasharray="4 2"
+                  connectNulls={false}
+                />
+              )}
+
               {activeSeries.has('temperature') && (
                 <Line
                   yAxisId="right"
@@ -312,8 +332,14 @@ export default function History() {
         {/* Llegenda d'eixos quan hi ha overlay */}
         {hasSoil && hasAmbient && (
           <div className="flex gap-4 mt-3 text-xs text-gray-400 justify-end">
-            <span>← eix esquerre: humitat (%)</span>
-            <span>eix dret: {activeSeries.has('temperature') && activeSeries.has('light') ? 'temperatura / llum' : activeSeries.has('temperature') ? 'temperatura (°C)' : 'lluminositat (lux)'} →</span>
+            <span>← eix esquerre: humitat terra (%)</span>
+            <span>eix dret: {
+              [
+                activeSeries.has('humidity') && 'humitat exterior (%)',
+                activeSeries.has('temperature') && 'temperatura (°C)',
+                activeSeries.has('light') && 'lluminositat (lux)',
+              ].filter(Boolean).join(' / ')
+            } →</span>
           </div>
         )}
       </div>
