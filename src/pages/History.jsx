@@ -101,7 +101,7 @@ function mergeAllData({ zoneHistories, ambientHistory, activeSeries }) {
     ;(ambientHistory?.temperature ?? []).forEach(r => { bucket(r.timestamp).temperature = r.value })
   }
   if (activeSeries.has('light')) {
-    ;(ambientHistory?.light_lux ?? []).forEach(r => { bucket(r.timestamp).light_lux = r.value / 65535 * 100 })
+    ;(ambientHistory?.light_lux ?? []).forEach(r => { bucket(r.timestamp).light_lux = r.value })
   }
 
   return Array.from(map.values())
@@ -182,12 +182,12 @@ export default function History() {
   const rightUnit = activeSeries.has('temperature') && activeSeries.has('light')
     ? ''
     : activeSeries.has('temperature') ? '°C'
-    : activeSeries.has('light') ? '%'
+    : activeSeries.has('light') ? 'lux'
     : ''
 
   const tooltipFormatter = (val, name) => {
     if (name === 'temperature') return [`${val?.toFixed(1)}°C`, 'Temperatura']
-    if (name === 'light_lux')   return [`${val?.toFixed(1)}%`, 'Lluminositat']
+    if (name === 'light_lux')   return [`${Math.round(val)} lux`, 'Lluminositat']
     const zone = zones.find(z => `z${z.id}` === name)
     return [`${val?.toFixed(1)}%`, zone?.name ?? name]
   }
@@ -313,7 +313,7 @@ export default function History() {
         {hasSoil && hasAmbient && (
           <div className="flex gap-4 mt-3 text-xs text-gray-400 justify-end">
             <span>← eix esquerre: humitat (%)</span>
-            <span>eix dret: {activeSeries.has('temperature') && activeSeries.has('light') ? 'temperatura / llum' : activeSeries.has('temperature') ? 'temperatura (°C)' : 'lluminositat (%)'} →</span>
+            <span>eix dret: {activeSeries.has('temperature') && activeSeries.has('light') ? 'temperatura / llum' : activeSeries.has('temperature') ? 'temperatura (°C)' : 'lluminositat (lux)'} →</span>
           </div>
         )}
       </div>

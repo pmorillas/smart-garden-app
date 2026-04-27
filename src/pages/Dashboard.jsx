@@ -230,6 +230,15 @@ function TankCard({ tank }) {
   )
 }
 
+function lightCondition(lux) {
+  if (lux == null) return 'Llum ambient'
+  if (lux < 10)    return 'Nit'
+  if (lux < 200)   return 'Crepuscle'
+  if (lux < 2000)  return 'Ennuvolat'
+  if (lux < 20000) return 'Parcialment ennuvolat'
+  return 'Sol directe'
+}
+
 export default function Dashboard({ data }) {
   const isLoading = !data
   const ambient = data?.ambient
@@ -250,7 +259,7 @@ export default function Dashboard({ data }) {
           <StatCard icon={Thermometer} iconBg="bg-orange-400"
             value={ambient?.temp?.toFixed(1)} unit="°C" label="Temperatura" isLoading={isLoading} />
           <StatCard icon={Sun} iconBg="bg-yellow-400"
-            value={ambient?.light_lux != null ? Math.round(ambient.light_lux / 65535 * 100) : null} unit="%" label="Llum ambient" isLoading={isLoading} />
+            value={ambient?.light_lux != null ? Math.round(ambient.light_lux) : null} unit="lux" label={lightCondition(ambient?.light_lux)} isLoading={isLoading} />
         </div>
       </section>
 
