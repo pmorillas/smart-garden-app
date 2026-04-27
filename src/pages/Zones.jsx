@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Droplets, Settings, Cpu, Loader2, CheckCircle,
-  AlertCircle, Plus, Trash2, X, WifiOff, CircuitBoard,
+  Droplets, Settings, Loader2, CheckCircle,
+  AlertCircle, Plus, Trash2, X, WifiOff, CircuitBoard, Save,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchZones, createZone, updateZone, updateZoneConfig, deleteZone } from '../api/zones'
@@ -136,15 +136,15 @@ function CreateZoneModal({ devices, onClose, onCreated }) {
 
 // ─── HardwareSection ──────────────────────────────────────────────────────────
 
-function HardwareSection({ zone, devices, onDeviceChanged }) {
-  const [deviceId,  setDeviceId]  = useState(String(zone.device_id ?? ''))
+function HardwareSection({ zone, devices, onDeviceChanged, onDirtyChange, saveSignal, onSaveDone }) {
+  const [deviceId,    setDeviceId]    = useState(String(zone.device_id ?? ''))
   const [peripherals, setPeripherals] = useState([])
-  const [loadingP,  setLoadingP]  = useState(false)
-  const [relayId,   setRelayId]   = useState(String(zone.relay_peripheral_id ?? ''))
-  const [soilIds,   setSoilIds]   = useState(zone.soil_peripheral_ids ?? [])
-  const [aggMode,   setAggMode]   = useState(zone.soil_aggregation_mode ?? 'AVG')
-  const [saving,    setSaving]    = useState(false)
-  const [status,    setStatus]    = useState(null) // 'ok' | 'error' | 'pushing'
+  const [loadingP,    setLoadingP]    = useState(false)
+  const [relayId,     setRelayId]     = useState(String(zone.relay_peripheral_id ?? ''))
+  const [soilIds,     setSoilIds]     = useState(zone.soil_peripheral_ids ?? [])
+  const [aggMode,     setAggMode]     = useState(zone.soil_aggregation_mode ?? 'AVG')
+  const [pushStatus,  setPushStatus]  = useState(null) // null | 'pushing'
+  const isSavingRef = useRef(false)
 
   // Load peripherals when device changes
   useEffect(() => {
@@ -156,7 +156,6 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
       .finally(() => setLoadingP(false))
   }, [deviceId])
 
-  // Reset peripheral selection when device changes
   function handleDeviceChange(newId) {
     if (newId !== deviceId) {
       setRelayId('')
@@ -169,12 +168,36 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
     setSoilIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
+  // Dirty detection
+  const isDirty = (
+    deviceId !== String(zone.device_id ?? '') ||
+    relayId  !== String(zone.relay_peripheral_id ?? '') ||
+    aggMode  !== (zone.soil_aggregation_mode ?? 'AVG') ||
+    JSON.stringify([...soilIds].sort()) !== JSON.stringify([...(zone.soil_peripheral_ids ?? [])].sort())
+  )
+
+  useEffect(() => {
+    onDirtyChange(isDirty)
+  }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Trigger save when parent increments saveSignal
+  const prevSignalRef = useRef(saveSignal)
+  useEffect(() => {
+    if (saveSignal !== prevSignalRef.current) {
+      prevSignalRef.current = saveSignal
+      if (isDirty && !isSavingRef.current) {
+        handleSave()
+      }
+    }
+  }) // no deps — runs every render, gated by ref comparison
+
   const relays      = peripherals.filter(p => p.type === 'RELAY')
   const soilSensors = peripherals.filter(p => p.type === 'SOIL_ADC')
 
   async function handleSave() {
-    setSaving(true)
-    setStatus(null)
+    if (isSavingRef.current) return
+    isSavingRef.current = true
+    setPushStatus(null)
     try {
       const newDeviceId = deviceId === '' ? null : Number(deviceId)
       const calls = []
@@ -200,17 +223,18 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
       await Promise.all(calls)
 
       if (newDeviceId) {
-        setStatus('pushing')
+        setPushStatus('pushing')
         await pushHardwareConfig(newDeviceId)
       }
 
-      setStatus('ok')
+      setPushStatus(null)
       onDeviceChanged()
-      setTimeout(() => setStatus(null), 3000)
+      onSaveDone('ok')
     } catch {
-      setStatus('error')
+      setPushStatus(null)
+      onSaveDone('error')
     } finally {
-      setSaving(false)
+      isSavingRef.current = false
     }
   }
 
@@ -285,30 +309,24 @@ function HardwareSection({ zone, devices, onDeviceChanged }) {
         </div>
       )}
 
-      {/* Save hardware */}
-      <div className="pt-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          {status === 'ok'     && <><CheckCircle className="w-4 h-4 text-green-500" /><span className="text-green-600">Desat i enviat</span></>}
-          {status === 'error'  && <><AlertCircle className="w-4 h-4 text-red-500"   /><span className="text-red-600">Error en desar</span></>}
-          {status === 'pushing'&& <><Loader2 className="w-4 h-4 animate-spin text-amber-500" /><span className="text-amber-600">Enviant a ESP32…</span></>}
+      {/* Push status inline feedback */}
+      {pushStatus === 'pushing' && (
+        <div className="pt-2 flex items-center gap-2 text-sm text-amber-600">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Enviant a ESP32…
         </div>
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">
-          {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-          Desa hardware
-        </button>
-      </div>
+      )}
     </div>
   )
 }
 
 // ─── ZoneConfigCard ───────────────────────────────────────────────────────────
 
-function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
+function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted, onDirtyChange, saveSignal, onSaveDone }) {
   const [form,     setForm]     = useState(null)
-  const [saving,   setSaving]   = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [status,   setStatus]   = useState(null) // 'ok' | 'error'
+  const [hwDirty,  setHwDirty]  = useState(false)
+  const isSavingRef = useRef(false)
 
   useEffect(() => {
     setForm({
@@ -324,9 +342,37 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
-  async function handleSave() {
-    setSaving(true)
-    setStatus(null)
+  // Config dirty detection
+  const isConfigDirty = form != null && (
+    form.name              !== zone.name ||
+    form.active            !== zone.active ||
+    form.tank_id           !== (zone.tank_id ?? '') ||
+    form.humidity_min      !== (zone.config?.humidity_min      ?? 30) ||
+    form.humidity_max      !== (zone.config?.humidity_max      ?? 80) ||
+    form.max_temp_to_water !== (zone.config?.max_temp_to_water ?? 38) ||
+    form.cooldown_hours    !== (zone.config?.cooldown_hours    ?? 2)
+  )
+
+  const isDirty = isConfigDirty || hwDirty
+
+  useEffect(() => {
+    onDirtyChange(zone.id, isDirty)
+  }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Trigger config save when parent increments saveSignal
+  const prevSignalRef = useRef(saveSignal)
+  useEffect(() => {
+    if (saveSignal !== prevSignalRef.current) {
+      prevSignalRef.current = saveSignal
+      if (isConfigDirty && !isSavingRef.current) {
+        handleConfigSave()
+      }
+    }
+  })
+
+  async function handleConfigSave() {
+    if (isSavingRef.current) return
+    isSavingRef.current = true
     try {
       await Promise.all([
         updateZone(zone.id, { name: form.name, active: form.active, tank_id: form.tank_id === '' ? null : Number(form.tank_id) }),
@@ -337,14 +383,22 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
           cooldown_hours:    form.cooldown_hours,
         }),
       ])
-      setStatus('ok')
       onSaved()
-      setTimeout(() => setStatus(null), 3000)
+      onSaveDone(zone.id, 'ok')
     } catch {
-      setStatus('error')
+      onSaveDone(zone.id, 'error')
     } finally {
-      setSaving(false)
+      isSavingRef.current = false
     }
+  }
+
+  // Called by HardwareSection when its save completes
+  function handleHwSaveDone(status) {
+    if (!isConfigDirty) {
+      // only hw was dirty — report done for this zone
+      onSaveDone(zone.id, status)
+    }
+    // if both were dirty, config save already reported onSaveDone
   }
 
   async function handleDelete() {
@@ -364,7 +418,10 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
   const assignedDevice = devices.find(d => d.id === zone.device_id)
 
   return (
-    <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
+    <div className={clsx(
+      'rounded-2xl bg-white border shadow-sm overflow-hidden transition-colors',
+      isDirty ? 'border-amber-300' : 'border-gray-200',
+    )}>
       {/* Header */}
       <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
@@ -402,7 +459,14 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
 
         {/* Hardware section */}
         <SectionHeader icon={CircuitBoard} label="Hardware" />
-        <HardwareSection zone={zone} devices={devices} onDeviceChanged={onSaved} />
+        <HardwareSection
+          zone={zone}
+          devices={devices}
+          onDeviceChanged={onSaved}
+          onDirtyChange={setHwDirty}
+          saveSignal={saveSignal}
+          onSaveDone={handleHwSaveDone}
+        />
 
         {/* Tank */}
         <SectionHeader icon={Droplets} label="Dipòsit" />
@@ -434,21 +498,14 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
           <NumberField value={form.max_temp_to_water} onChange={v => set('max_temp_to_water', v)} unit="°C" min={0} max={60} />
         </FieldRow>
 
-
       </div>
 
-      {/* Footer */}
-      <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          {status === 'ok'    && <><CheckCircle className="w-4 h-4 text-green-500" /><span className="text-green-600">Desat correctament</span></>}
-          {status === 'error' && <><AlertCircle className="w-4 h-4 text-red-500"   /><span className="text-red-600">Error en desar</span></>}
+      {/* Dirty indicator strip */}
+      {isDirty && (
+        <div className="px-6 py-2 bg-amber-50 border-t border-amber-100">
+          <p className="text-xs text-amber-600">Canvis pendents de desar</p>
         </div>
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
-          {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-          Desar canvis
-        </button>
-      </div>
+      )}
     </div>
   )
 }
@@ -456,12 +513,18 @@ function ZoneConfigCard({ zone, devices, tanks, onSaved, onDeleted }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Zones() {
-  const [zones,      setZones]      = useState([])
-  const [devices,    setDevices]    = useState([])
-  const [tanks,      setTanks]      = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState(null)
-  const [showCreate, setShowCreate] = useState(false)
+  const [zones,        setZones]        = useState([])
+  const [devices,      setDevices]      = useState([])
+  const [tanks,        setTanks]        = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [showCreate,   setShowCreate]   = useState(false)
+  const [dirtyZoneIds, setDirtyZoneIds] = useState(new Set())
+  const [saveSignal,   setSaveSignal]   = useState(0)
+  const [globalSaving, setGlobalSaving] = useState(false)
+  const [globalStatus, setGlobalStatus] = useState(null) // null | 'ok' | 'error'
+  const pendingRef  = useRef(0)
+  const hasErrorRef = useRef(false)
 
   const load = useCallback(async () => {
     try {
@@ -478,6 +541,36 @@ export default function Zones() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  function handleDirtyChange(zoneId, isDirty) {
+    setDirtyZoneIds(prev => {
+      const next = new Set(prev)
+      if (isDirty) next.add(zoneId)
+      else next.delete(zoneId)
+      return next
+    })
+  }
+
+  function handleGlobalSave() {
+    if (dirtyZoneIds.size === 0) return
+    pendingRef.current  = dirtyZoneIds.size
+    hasErrorRef.current = false
+    setGlobalSaving(true)
+    setGlobalStatus(null)
+    setSaveSignal(s => s + 1)
+  }
+
+  function handleSaveDone(zoneId, status) {
+    if (status === 'error') hasErrorRef.current = true
+    pendingRef.current -= 1
+    if (pendingRef.current <= 0) {
+      setGlobalSaving(false)
+      setGlobalStatus(hasErrorRef.current ? 'error' : 'ok')
+      setTimeout(() => setGlobalStatus(null), 3000)
+    }
+  }
+
+  const hasDirty = dirtyZoneIds.size > 0
 
   if (loading) {
     return (
@@ -498,23 +591,65 @@ export default function Zones() {
   return (
     <>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Zones de reg</h2>
             <p className="text-sm text-gray-500 mt-0.5">{zones.length} zona{zones.length !== 1 ? 'es' : ''} configurada{zones.length !== 1 ? 'des' : ''}</p>
           </div>
-          <button onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nova zona</span>
-            <span className="sm:hidden">Nova</span>
-          </button>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Global status feedback */}
+            {globalStatus === 'ok' && (
+              <span className="flex items-center gap-1.5 text-sm text-green-600">
+                <CheckCircle className="w-4 h-4" />
+                Desat
+              </span>
+            )}
+            {globalStatus === 'error' && (
+              <span className="flex items-center gap-1.5 text-sm text-red-600">
+                <AlertCircle className="w-4 h-4" />
+                Error en desar
+              </span>
+            )}
+
+            {/* Save all button — only visible when there are pending changes */}
+            {(hasDirty || globalSaving) && (
+              <button
+                onClick={handleGlobalSave}
+                disabled={globalSaving || !hasDirty}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]"
+              >
+                {globalSaving
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Save className="w-4 h-4" />
+                }
+                <span className="hidden sm:inline">Desa canvis</span>
+                <span className="sm:hidden">Desa</span>
+              </button>
+            )}
+
+            <button onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Nova zona</span>
+              <span className="sm:hidden">Nova</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {zones.map(zone => (
-            <ZoneConfigCard key={zone.id} zone={zone} devices={devices} tanks={tanks}
-              onSaved={load} onDeleted={load} />
+            <ZoneConfigCard
+              key={zone.id}
+              zone={zone}
+              devices={devices}
+              tanks={tanks}
+              onSaved={load}
+              onDeleted={load}
+              onDirtyChange={handleDirtyChange}
+              saveSignal={saveSignal}
+              onSaveDone={handleSaveDone}
+            />
           ))}
         </div>
 
