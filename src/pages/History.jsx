@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2, Trash2, Database } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchZones, getZoneHistory, cleanupHistory } from '../api/zones'
 import { getAmbientHistory } from '../api/sensors'
@@ -113,7 +113,7 @@ function mergeAllData({ zoneHistories, ambientHistory, activeSeries }) {
     .map(pt => ({ ...pt, time: toChartTime(pt.ts) }))
 }
 
-function CleanupButton({ category, label, description }) {
+function CleanupRow({ category, label }) {
   const [deleting, setDeleting] = useState(false)
   const [date, setDate] = useState('')
 
@@ -133,31 +133,25 @@ function CleanupButton({ category, label, description }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-400 hidden md:inline">{description}</span>
-      <div className="flex items-center gap-1">
+    <div className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0 gap-4">
+      <span className="text-sm text-gray-600">{label}</span>
+      <div className="flex items-center gap-2">
         <input
           type="date"
           value={date}
           onChange={e => setDate(e.target.value)}
-          className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white outline-none focus:ring-2 focus:ring-green-500"
+          className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
         />
         <button
           onClick={handleCleanup}
           disabled={!date || deleting}
-          className={clsx(
-            'p-1.5 rounded-lg transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center',
-            !date || deleting
-              ? 'text-gray-300 cursor-not-allowed'
-              : 'text-gray-400 hover:bg-red-50 hover:text-red-500'
-          )}
-          title="Esborrar històric"
+          title="Esborrar dades antigues"
+          className="p-2 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed min-w-[36px] min-h-[36px] flex items-center justify-center"
         >
-          {deleting ? (
-            <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-          ) : (
-            <Trash2 className="w-4 h-4" />
-          )}
+          {deleting
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <Trash2 className="w-4 h-4" />
+          }
         </button>
       </div>
     </div>
@@ -256,11 +250,6 @@ export default function History() {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <div className="flex items-center gap-3">
               <h2 className="font-semibold text-gray-900">Historial de sensors</h2>
-              <CleanupButton
-                category="sensor_readings"
-                label="les lectures de sensors"
-                description="Esborra lectures antigues"
-              />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <SeriesToggle value={activeSeries} onChange={toggleSeries} options={SERIES_OPTIONS} />
@@ -404,13 +393,8 @@ export default function History() {
 
       {/* Events table */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">Events de reg recents</h2>
-          <CleanupButton
-            category="watering_events"
-            label="els events de reg"
-            description="Esborra events antics"
-          />
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-10">
@@ -459,6 +443,18 @@ export default function History() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Data maintenance */}
+      <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+          <Database className="w-4 h-4 text-gray-400" />
+          <h2 className="font-semibold text-gray-900">Manteniment de dades</h2>
+        </div>
+        <div className="px-6 py-2">
+          <CleanupRow category="sensor_readings" label="Lectures de sensors" />
+          <CleanupRow category="watering_events" label="Events de reg" />
+        </div>
       </div>
     </div>
   )
