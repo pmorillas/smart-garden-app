@@ -3,9 +3,9 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
-import { fetchZones, getZoneHistory } from '../api/zones'
+import { fetchZones, getZoneHistory, cleanupHistory } from '../api/zones'
 import { getAmbientHistory } from '../api/sensors'
 
 const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#22c55e', '#f97316']
@@ -113,6 +113,57 @@ function mergeAllData({ zoneHistories, ambientHistory, activeSeries }) {
     .map(pt => ({ ...pt, time: toChartTime(pt.ts) }))
 }
 
+function CleanupButton({ category, label, description }) {
+  const [deleting, setDeleting] = useState(false)
+  const [date, setDate] = useState('')
+
+  async function handleCleanup() {
+    if (!date) return
+    if (!confirm(`Esborrar ${label} anteriors a ${new Date(date + 'T23:59:59').toLocaleDateString('ca')}?`)) return
+    setDeleting(true)
+    try {
+      const olderThan = new Date(date + 'T23:59:59').toISOString()
+      await cleanupHistory(category, olderThan)
+      setDate('')
+      window.location.reload()
+    } catch {
+      setDeleting(false)
+      alert(`Error en esborrar ${label.toLowerCase()}`)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-400 hidden md:inline">{description}</span>
+      <div className="flex items-center gap-1">
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white outline-none focus:ring-2 focus:ring-green-500"
+        />
+        <button
+          onClick={handleCleanup}
+          disabled={!date || deleting}
+          className={clsx(
+            'p-1.5 rounded-lg transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center',
+            !date || deleting
+              ? 'text-gray-300 cursor-not-allowed'
+              : 'text-gray-400 hover:bg-red-50 hover:text-red-500'
+          )}
+          title="Esborrar històric"
+        >
+          {deleting ? (
+            <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function History() {
   const [zones, setZones] = useState([])
   const [zoneHistories, setZoneHistories] = useState([])
@@ -202,10 +253,17 @@ export default function History() {
     <div className="space-y-6">
       {/* Chart */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 md:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <h2 className="font-semibold text-gray-900">Historial de sensors</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <SeriesToggle value={activeSeries} onChange={toggleSeries} options={SERIES_OPTIONS} />
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              <h2 className="font-semibold text-gray-900">Historial de sensors</h2>
+              <CleanupButton
+                category="sensor_readings"
+                label="les lectures de sensors"
+                description="Esborra lectures antigues"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <SeriesToggle value={activeSeries} onChange={toggleSeries} options={SERIES_OPTIONS} />
             {hasSoil && (
               <TabGroup value={activeZone} onChange={setActiveZone} options={zoneOptions} />
             )}
@@ -346,8 +404,13 @@ export default function History() {
 
       {/* Events table */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Events de reg recents</h2>
+          <CleanupButton
+            category="watering_events"
+            label="els events de reg"
+            description="Esborra events antics"
+          />
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-10">
