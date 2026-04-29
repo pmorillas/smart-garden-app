@@ -10,6 +10,14 @@ import { getAmbientHistory } from '../api/sensors'
 
 const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#22c55e', '#f97316']
 const TRIGGER_LABELS = { manual: 'Manual', schedule: 'Horari', sensor: 'Sensor' }
+const SKIP_REASON_LABELS = {
+  humidity_ok:       'Humitat suficient',
+  cooldown_active:   'Cooldown actiu',
+  too_hot:           'Temperatura massa alta',
+  tank_empty:        'Dipòsit buit',
+  already_watering:  'Ja regant',
+  condition_not_met: 'Condició no complida',
+}
 
 const HOUR_OPTIONS = [
   { value: 24, label: '24 h' },
@@ -413,32 +421,56 @@ export default function History() {
                   <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Zona</th>
                   <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Durada</th>
                   <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide hidden sm:table-cell">Trigger</th>
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Estat</th>
+                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Estat / Motiu</th>
                 </tr>
               </thead>
               <tbody>
-                {allEvents.map(ev => (
-                  <tr key={ev.id} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
-                    <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDatetime(ev.started_at)}</td>
-                    <td className="px-4 md:px-6 py-3.5">
-                      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                        {ev.zone_name}
-                      </span>
-                    </td>
-                    <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDuration(ev.duration_seconds)}</td>
-                    <td className="px-4 md:px-6 py-3.5 text-gray-500 hidden sm:table-cell">
-                      {TRIGGER_LABELS[ev.trigger_type] ?? ev.trigger_type}
-                    </td>
-                    <td className="px-4 md:px-6 py-3.5">
-                      <span className={clsx(
-                        'px-2 py-0.5 rounded-full text-xs font-medium',
-                        ev.ended_at ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                      )}>
-                        {ev.ended_at ? 'Completat' : 'Actiu'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {allEvents.map(ev => {
+                  const isSkipped = ev.outcome === 'skipped'
+                  return (
+                    <tr
+                      key={ev.id}
+                      className={clsx(
+                        'border-b border-gray-50 hover:bg-gray-50/60 transition-colors',
+                        isSkipped && 'opacity-75'
+                      )}
+                    >
+                      <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDatetime(ev.started_at)}</td>
+                      <td className="px-4 md:px-6 py-3.5">
+                        <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                          {ev.zone_name}
+                        </span>
+                      </td>
+                      <td className="px-4 md:px-6 py-3.5 text-gray-600">
+                        {isSkipped ? '—' : formatDuration(ev.duration_seconds)}
+                      </td>
+                      <td className="px-4 md:px-6 py-3.5 text-gray-500 hidden sm:table-cell">
+                        {TRIGGER_LABELS[ev.trigger_type] ?? ev.trigger_type}
+                      </td>
+                      <td className="px-4 md:px-6 py-3.5">
+                        {isSkipped ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 w-fit">
+                              Saltat
+                            </span>
+                            {ev.skip_reason && (
+                              <span className="text-xs text-gray-400">
+                                {SKIP_REASON_LABELS[ev.skip_reason] ?? ev.skip_reason}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className={clsx(
+                            'px-2 py-0.5 rounded-full text-xs font-medium',
+                            ev.ended_at ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                          )}>
+                            {ev.ended_at ? 'Completat' : 'Actiu'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
