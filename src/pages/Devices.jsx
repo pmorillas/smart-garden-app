@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Cpu, Wifi, WifiOff, Pencil, Trash2, Check, X, Loader2, Layers, Timer,
   CircuitBoard, Plus, Zap, Droplet, Thermometer, Sun, Radio, Gauge, Send,
-  Settings2,
+  Settings2, Activity,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchDevices, updateDevice, deleteDevice } from '../api/devices'
 import {
   fetchPeripherals, createPeripheral, updatePeripheral, deletePeripheral,
-  pushHardwareConfig,
+  pushHardwareConfig, readPeripheralLive,
 } from '../api/peripherals'
 
 // ─── Peripheral type metadata ─────────────────────────────────────────────────
@@ -225,15 +225,86 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
   )
 }
 
+// ─── LiveReadPanel ────────────────────────────────────────────────────────────
+
+function LiveReadPanel({ deviceId, peripheral, onApplyCal }) {
+  const [reading, setReading]   = useState(null)  // {raw_value, calibrated_pct, cal_empty, cal_full}
+  const [loading, setLoading]   = useState(false)
+  const [error,   setError]     = useState(null)
+
+  async function handleRead() {
+    setLoading(true)
+    setError(null)
+    setReading(null)
+    try {
+      const data = await readPeripheralLive(deviceId, peripheral.id)
+      setReading(data)
+    } catch {
+      setError('No s\'ha pogut llegir el sensor. Comprova que el dispositiu és en línia.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-amber-800">Lectura en viu (calibratge)</span>
+        <button
+          onClick={handleRead}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-amber-700 border border-amber-200 bg-white hover:bg-amber-50 transition-colors disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />}
+          {loading ? 'Llegint...' : 'Llegir ara'}
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      {reading && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-amber-700 font-mono font-semibold">RAW: {reading.raw_value}</span>
+            {reading.calibrated_pct != null && (
+              <span className="text-gray-500">→ {reading.calibrated_pct}% humitat</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onApplyCal('cal_empty', reading.raw_value)}
+              className="flex-1 px-2 py-1 rounded text-xs font-medium text-gray-600 bg-white border border-gray-200 hover:border-amber-300 hover:text-amber-700 transition-colors"
+              title={`Marcar ${reading.raw_value} com a valor SEC (0%)`}
+            >
+              → Sec (0%)
+            </button>
+            <button
+              onClick={() => onApplyCal('cal_full', reading.raw_value)}
+              className="flex-1 px-2 py-1 rounded text-xs font-medium text-gray-600 bg-white border border-gray-200 hover:border-blue-300 hover:text-blue-700 transition-colors"
+              title={`Marcar ${reading.raw_value} com a valor MULLAT (100%)`}
+            >
+              → Mullat (100%)
+            </button>
+          </div>
+          <p className="text-[10px] text-amber-600">
+            Cal. actual: Sec={reading.cal_empty} · Mullat={reading.cal_full}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── HardwareConfigModal ──────────────────────────────────────────────────────
 
 function HardwareConfigModal({ device, onClose }) {
-  const [peripherals, setPeripherals] = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [formModal,   setFormModal]   = useState(null) // null | 'create' | peripheral
-  const [pushing,     setPushing]     = useState(false)
-  const [pushResult,  setPushResult]  = useState(null)
-  const [pushError,   setPushError]   = useState(null)
+  const [peripherals,  setPeripherals]  = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [formModal,    setFormModal]    = useState(null) // null | 'create' | peripheral
+  const [liveReadId,   setLiveReadId]   = useState(null) // peripheral id with open read panel
+  const [pushing,      setPushing]      = useState(false)
+  const [pushResult,   setPushResult]   = useState(null)
+  const [pushError,    setPushError]    = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -315,36 +386,67 @@ function HardwareConfigModal({ device, onClose }) {
                 <div className="space-y-2">
                   {peripherals.map(p => {
                     const meta = TYPE_META[p.type]
+                    const showLiveRead = liveReadId === p.id
                     return (
                       <div key={p.id} className={clsx(
-                        'flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3',
+                        'rounded-xl border border-gray-200 px-4 py-3',
                         !p.enabled && 'opacity-50'
                       )}>
-                        {meta && (
-                          <div className={clsx('flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center', meta.bg)}>
-                            <meta.Icon style={{ width: 16, height: 16 }} className={meta.text} />
+                        <div className="flex items-center gap-3">
+                          {meta && (
+                            <div className={clsx('flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center', meta.bg)}>
+                              <meta.Icon style={{ width: 16, height: 16 }} className={meta.text} />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                              <TypeBadge type={p.type} />
+                              {p.pin1 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin1}</span>}
+                              {p.pin2 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin2}</span>}
+                              {p.i2c_address != null && <span className="text-[11px] text-gray-400 font-mono">0x{p.i2c_address.toString(16).padStart(2, '0').toUpperCase()}</span>}
+                              {p.extra_config?.cal_empty != null && <span className="text-[11px] text-gray-400">Cal: {p.extra_config.cal_empty}–{p.extra_config.cal_full}</span>}
+                            </div>
                           </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {p.type === 'SOIL_ADC' && (
+                              <button
+                                onClick={() => setLiveReadId(showLiveRead ? null : p.id)}
+                                title="Llegir valor actual (calibratge)"
+                                className={clsx(
+                                  'p-1.5 rounded-lg transition-colors',
+                                  showLiveRead
+                                    ? 'text-amber-600 bg-amber-50'
+                                    : 'text-gray-400 hover:bg-amber-50 hover:text-amber-600'
+                                )}
+                              >
+                                <Activity className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button onClick={() => setFormModal(p)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDelete(p.id)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        {showLiveRead && (
+                          <LiveReadPanel
+                            deviceId={device.id}
+                            peripheral={p}
+                            onApplyCal={(field, value) => {
+                              const newExtraConfig = {
+                                ...(p.extra_config || {}),
+                                [field]: value,
+                              }
+                              setFormModal({ ...p, extra_config: newExtraConfig })
+                              setLiveReadId(null)
+                            }}
+                          />
                         )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                            <TypeBadge type={p.type} />
-                            {p.pin1 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin1}</span>}
-                            {p.pin2 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin2}</span>}
-                            {p.i2c_address != null && <span className="text-[11px] text-gray-400 font-mono">0x{p.i2c_address.toString(16).padStart(2, '0').toUpperCase()}</span>}
-                            {p.extra_config?.cal_empty != null && <span className="text-[11px] text-gray-400">Cal: {p.extra_config.cal_empty}–{p.extra_config.cal_full}</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button onClick={() => setFormModal(p)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleDelete(p.id)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
                       </div>
                     )
                   })}

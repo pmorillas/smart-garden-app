@@ -25,3 +25,6 @@ export const assignTankPeripheral = (deviceId, data) =>
 
 export const pushHardwareConfig = (deviceId) =>
   httpClient.post(`/api/devices/${deviceId}/push-hardware-config`).then(r => r.data)
+
+export const readPeripheralLive = (deviceId, peripheralId) =>
+  httpClient.post(`${base(deviceId)}/${peripheralId}/read`).then(r => r.data)
