@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { fetchAlerts, resolveAlert, deleteAlert } from '../api/alerts'
 import { fetchAlertRules, createAlertRule, updateAlertRule, deleteAlertRule } from '../api/alert_rules'
 import { fetchZones } from '../api/zones'
+import { fetchTanks } from '../api/tanks'
 import { getVapidPublicKey, saveSubscription, deleteSubscription, urlBase64ToUint8Array } from '../api/push'
 
 const STYLES = {
@@ -12,6 +13,7 @@ const STYLES = {
   water_failed:    { Icon: XCircle,       border: 'border-l-red-400',    bg: 'bg-red-50',    icon: 'text-red-500',    badge: 'bg-red-100 text-red-700',       label: 'Error reg' },
   water_completed: { Icon: CheckCircle,   border: 'border-l-green-400',  bg: 'bg-green-50',  icon: 'text-green-500',  badge: 'bg-green-100 text-green-700',   label: 'Reg completat' },
   sensor_error:    { Icon: AlertTriangle, border: 'border-l-orange-400', bg: 'bg-orange-50', icon: 'text-orange-500', badge: 'bg-orange-100 text-orange-700', label: 'Error sensor' },
+  tank_level_low:  { Icon: Droplets,      border: 'border-l-blue-400',   bg: 'bg-blue-50',   icon: 'text-blue-500',   badge: 'bg-blue-100 text-blue-700',     label: 'Dipòsit baix' },
 }
 
 const DEFAULT_STYLE = { Icon: Info, border: 'border-l-blue-400', bg: 'bg-blue-50', icon: 'text-blue-500', badge: 'bg-blue-100 text-blue-700', label: 'Info' }
@@ -180,11 +182,12 @@ function PushToggle() {
 // ── Alert rules ──────────────────────────────────────────────────────────────
 
 const RULE_TYPE_CONFIG = {
-  humidity_low:    { label: 'Humitat terra baixa', Icon: Droplets,    color: 'yellow', hasThreshold: true,  thresholdUnit: '%',   thresholdDesc: 'Alertar si humitat <' },
-  device_offline:  { label: 'Dispositiu offline',  Icon: WifiOff,     color: 'red',    hasThreshold: true,  thresholdUnit: 'min', thresholdDesc: 'Alertar si offline >' },
-  water_completed: { label: 'Reg completat',        Icon: CheckCircle, color: 'green',  hasThreshold: false },
-  water_failed:    { label: 'Error de reg',         Icon: XCircle,     color: 'red',    hasThreshold: false },
-  sensor_error:    { label: 'Error de sensor',      Icon: AlertTriangle, color: 'orange', hasThreshold: false },
+  humidity_low:    { label: 'Humitat terra baixa', Icon: Droplets,      color: 'yellow', hasThreshold: true,  thresholdUnit: '%',   thresholdDesc: 'Alertar si humitat <',  hasTank: false },
+  device_offline:  { label: 'Dispositiu offline',  Icon: WifiOff,       color: 'red',    hasThreshold: true,  thresholdUnit: 'min', thresholdDesc: 'Alertar si offline >',  hasTank: false },
+  water_completed: { label: 'Reg completat',        Icon: CheckCircle,   color: 'green',  hasThreshold: false, hasTank: false },
+  water_failed:    { label: 'Error de reg',         Icon: XCircle,       color: 'red',    hasThreshold: false, hasTank: false },
+  sensor_error:    { label: 'Error de sensor',      Icon: AlertTriangle, color: 'orange', hasThreshold: false, hasTank: false },
+  tank_level_low:  { label: 'Dipòsit baix',         Icon: Droplets,      color: 'blue',   hasThreshold: true,  thresholdUnit: '%',   thresholdDesc: 'Alertar si nivell <', hasTank: true },
 }
 
 const COLOR_CLASSES = {
@@ -192,12 +195,14 @@ const COLOR_CLASSES = {
   red:    { badge: 'bg-red-100 text-red-700',       icon: 'text-red-500' },
   green:  { badge: 'bg-green-100 text-green-700',   icon: 'text-green-500' },
   orange: { badge: 'bg-orange-100 text-orange-700', icon: 'text-orange-500' },
+  blue:   { badge: 'bg-blue-100 text-blue-700',     icon: 'text-blue-500' },
 }
 
-function AlertRuleCard({ rule, zones, onUpdated, onDeleted }) {
-  const cfg = RULE_TYPE_CONFIG[rule.alert_type] ?? { label: rule.alert_type, Icon: Info, color: 'blue', hasThreshold: false }
+function AlertRuleCard({ rule, zones, tanks, onUpdated, onDeleted }) {
+  const cfg = RULE_TYPE_CONFIG[rule.alert_type] ?? { label: rule.alert_type, Icon: Info, color: 'blue', hasThreshold: false, hasTank: false }
   const colors = COLOR_CLASSES[cfg.color] ?? COLOR_CLASSES.red
   const zoneName = rule.zone_id ? zones.find(z => z.id === rule.zone_id)?.name ?? `Zona ${rule.zone_id}` : null
+  const tankName = rule.tank_id ? tanks.find(t => t.id === rule.tank_id)?.name ?? `Dipòsit ${rule.tank_id}` : null
 
   const [threshold, setThreshold] = useState(rule.threshold ?? '')
   const [cooldown, setCooldown] = useState(rule.cooldown_minutes)
@@ -241,6 +246,9 @@ function AlertRuleCard({ rule, zones, onUpdated, onDeleted }) {
             <span className={clsx('text-xs px-1.5 py-0.5 rounded-full font-medium', colors.badge)}>{cfg.label}</span>
             {zoneName && (
               <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{zoneName}</span>
+            )}
+            {tankName && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">{tankName}</span>
             )}
           </div>
         </div>
@@ -312,10 +320,10 @@ function AlertRuleCard({ rule, zones, onUpdated, onDeleted }) {
   )
 }
 
-function NewRuleForm({ zones, onSaved, onCancel }) {
+function NewRuleForm({ zones, tanks, onSaved, onCancel }) {
   const [form, setForm] = useState({
     name: '', alert_type: 'humidity_low', enabled: true,
-    zone_id: '', threshold: '', cooldown_minutes: 60,
+    zone_id: '', tank_id: '', threshold: '', cooldown_minutes: 60,
   })
   const [saving, setSaving] = useState(false)
 
@@ -329,7 +337,8 @@ function NewRuleForm({ zones, onSaved, onCancel }) {
       name: form.name.trim(),
       alert_type: form.alert_type,
       enabled: form.enabled,
-      zone_id: form.zone_id ? Number(form.zone_id) : null,
+      zone_id: (!cfg.hasTank && form.zone_id) ? Number(form.zone_id) : null,
+      tank_id: (cfg.hasTank && form.tank_id) ? Number(form.tank_id) : null,
       threshold: form.threshold !== '' ? Number(form.threshold) : null,
       cooldown_minutes: Number(form.cooldown_minutes),
     }
@@ -364,17 +373,31 @@ function NewRuleForm({ zones, onSaved, onCancel }) {
             ))}
           </select>
         </label>
-        <label className="space-y-1">
-          <span className="text-xs text-gray-500">Zona (opcional)</span>
-          <select
-            value={form.zone_id}
-            onChange={e => set('zone_id', e.target.value)}
-            className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
-          >
-            <option value="">Totes les zones</option>
-            {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
-          </select>
-        </label>
+        {cfg.hasTank ? (
+          <label className="space-y-1">
+            <span className="text-xs text-gray-500">Dipòsit (opcional)</span>
+            <select
+              value={form.tank_id}
+              onChange={e => set('tank_id', e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            >
+              <option value="">Tots els dipòsits</option>
+              {tanks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+        ) : (
+          <label className="space-y-1">
+            <span className="text-xs text-gray-500">Zona (opcional)</span>
+            <select
+              value={form.zone_id}
+              onChange={e => set('zone_id', e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            >
+              <option value="">Totes les zones</option>
+              {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+            </select>
+          </label>
+        )}
         {cfg.hasThreshold && (
           <label className="space-y-1">
             <span className="text-xs text-gray-500">{cfg.thresholdDesc} ({cfg.thresholdUnit})</span>
@@ -418,12 +441,13 @@ function NewRuleForm({ zones, onSaved, onCancel }) {
 function AlertRulesSection() {
   const [rules, setRules] = useState([])
   const [zones, setZones] = useState([])
+  const [tanks, setTanks] = useState([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
 
   useEffect(() => {
-    Promise.all([fetchAlertRules(), fetchZones()])
-      .then(([r, z]) => { setRules(r); setZones(z) })
+    Promise.all([fetchAlertRules(), fetchZones(), fetchTanks()])
+      .then(([r, z, t]) => { setRules(r); setZones(z); setTanks(t) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -454,13 +478,14 @@ function AlertRulesSection() {
         ) : (
           <>
             {showNewForm && (
-              <NewRuleForm zones={zones} onSaved={handleCreated} onCancel={() => setShowNewForm(false)} />
+              <NewRuleForm zones={zones} tanks={tanks} onSaved={handleCreated} onCancel={() => setShowNewForm(false)} />
             )}
             {rules.map(r => (
               <AlertRuleCard
                 key={r.id}
                 rule={r}
                 zones={zones}
+                tanks={tanks}
                 onUpdated={handleUpdated}
                 onDeleted={handleDeleted}
               />
