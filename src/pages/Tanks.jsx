@@ -1,19 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Droplets, Plus, X, Loader2, CheckCircle, AlertCircle,
-  Trash2, Settings, Target,
+  Droplets, Plus, X, Loader2, AlertCircle,
+  Trash2, Settings,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { fetchTanks, createTank, updateTank, deleteTank, calibrateTank } from '../api/tanks'
+import { fetchTanks, createTank, updateTank, deleteTank } from '../api/tanks'
 import { fetchDevices } from '../api/devices'
-
-const SENSOR_TYPES = [
-  { value: 'binary_single',  label: 'Binari simple (1 sensor flotador)' },
-  { value: 'binary_dual',    label: 'Binari doble (2 sensors flotadors)' },
-  { value: 'ultrasonic',     label: 'Ultrasònic HC-SR04' },
-  { value: 'pressure_adc',   label: 'Pressió ADC' },
-  { value: 'capacitive_adc', label: 'Capacitiu ADC' },
-]
+import { fetchPeripherals, assignTankPeripheral } from '../api/peripherals'
 
 const STATE_CONFIG = {
   full:    { label: 'Ple',  bg: 'bg-blue-100',   text: 'text-blue-700',   bar: 'bg-blue-400' },
@@ -52,22 +45,25 @@ function TankLevelBar({ status }) {
 function TankModal({ tank, devices, onClose, onSaved }) {
   const isEdit = !!tank
   const [form, setForm] = useState({
-    name: tank?.name ?? '',
-    device_id: tank?.device_id ?? '',
-    sensor_type: tank?.sensor_type ?? 'binary_single',
-    gpio_pin_1: tank?.gpio_pin_1 ?? '',
-    gpio_pin_2: tank?.gpio_pin_2 ?? '',
-    capacity_liters: tank?.capacity_liters ?? '',
-    low_threshold_pct: tank?.low_threshold_pct ?? 20,
+    name:                tank?.name ?? '',
+    device_id:           tank?.device_id ?? '',
+    peripheral_id:       tank?.peripheral_id ?? '',
+    capacity_liters:     tank?.capacity_liters ?? '',
+    low_threshold_pct:   tank?.low_threshold_pct ?? 20,
     empty_threshold_pct: tank?.empty_threshold_pct ?? 5,
   })
+  const [peripherals, setPeripherals] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const needsCalibration = ['ultrasonic', 'pressure_adc', 'capacitive_adc'].includes(form.sensor_type)
-  const hasTwoSensors = form.sensor_type !== 'binary_single' && form.sensor_type !== 'pressure_adc' && form.sensor_type !== 'capacitive_adc'
+  useEffect(() => {
+    if (!form.device_id) { setPeripherals([]); return }
+    fetchPeripherals(Number(form.device_id))
+      .then(data => setPeripherals(data.filter(p => p.type === 'HC_SR04' || p.type === 'FLOAT_BINARY')))
+      .catch(() => setPeripherals([]))
+  }, [form.device_id])
 
   async function handleSave() {
     if (!form.name.trim()) { setError('El nom és obligatori'); return }
@@ -75,19 +71,23 @@ function TankModal({ tank, devices, onClose, onSaved }) {
     setError(null)
     try {
       const payload = {
-        name: form.name.trim(),
-        device_id: form.device_id !== '' ? Number(form.device_id) : null,
-        sensor_type: form.sensor_type,
-        gpio_pin_1: form.gpio_pin_1 !== '' ? Number(form.gpio_pin_1) : null,
-        gpio_pin_2: form.gpio_pin_2 !== '' ? Number(form.gpio_pin_2) : null,
-        capacity_liters: form.capacity_liters !== '' ? Number(form.capacity_liters) : null,
-        low_threshold_pct: Number(form.low_threshold_pct),
+        name:                form.name.trim(),
+        device_id:           form.device_id !== '' ? Number(form.device_id) : null,
+        capacity_liters:     form.capacity_liters !== '' ? Number(form.capacity_liters) : null,
+        low_threshold_pct:   Number(form.low_threshold_pct),
         empty_threshold_pct: Number(form.empty_threshold_pct),
       }
+      let tankId
       if (isEdit) {
         await updateTank(tank.id, payload)
+        tankId = tank.id
       } else {
-        await createTank(payload)
+        const created = await createTank(payload)
+        tankId = created.id
+      }
+      if (form.device_id !== '') {
+        const peripheralId = form.peripheral_id !== '' ? Number(form.peripheral_id) : null
+        await assignTankPeripheral(Number(form.device_id), { tank_id: tankId, peripheral_id: peripheralId })
       }
       onSaved()
       onClose()
@@ -126,7 +126,7 @@ function TankModal({ tank, devices, onClose, onSaved }) {
               <label className="block text-sm font-medium text-gray-700 mb-1.5">ESP32 assignat</label>
               <select
                 value={form.device_id}
-                onChange={e => set('device_id', e.target.value)}
+                onChange={e => { set('device_id', e.target.value); set('peripheral_id', '') }}
                 className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
               >
                 <option value="">Sense dispositiu</option>
@@ -137,44 +137,23 @@ function TankModal({ tank, devices, onClose, onSaved }) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Tipus de sensor</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Sensor de nivell</label>
               <select
-                value={form.sensor_type}
-                onChange={e => set('sensor_type', e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+                value={form.peripheral_id}
+                onChange={e => set('peripheral_id', e.target.value)}
+                disabled={!form.device_id}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {SENSOR_TYPES.map(st => (
-                  <option key={st.value} value={st.value}>{st.label}</option>
+                <option value="">Sense sensor assignat</option>
+                {peripherals.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
                 ))}
               </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  {form.sensor_type === 'ultrasonic' ? 'GPIO Trigger (pin1)' : 'GPIO Pin 1'}
-                </label>
-                <input
-                  type="number" min={0} max={39}
-                  value={form.gpio_pin_1}
-                  onChange={e => set('gpio_pin_1', e.target.value)}
-                  placeholder="—"
-                  className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-green-500 outline-none"
-                />
-              </div>
-              {(hasTwoSensors || form.sensor_type === 'binary_dual' || form.sensor_type === 'ultrasonic') && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {form.sensor_type === 'ultrasonic' ? 'GPIO Echo (pin2)' : 'GPIO Pin 2'}
-                  </label>
-                  <input
-                    type="number" min={0} max={39}
-                    value={form.gpio_pin_2}
-                    onChange={e => set('gpio_pin_2', e.target.value)}
-                    placeholder="—"
-                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-green-500 outline-none"
-                  />
-                </div>
+              {form.device_id && peripherals.length === 0 && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Cap perifèric HC-SR04 ni FLOAT_BINARY al dispositiu seleccionat.
+                  Configura'l primer a la pàgina de Dispositius.
+                </p>
               )}
             </div>
 
@@ -210,12 +189,6 @@ function TankModal({ tank, devices, onClose, onSaved }) {
               </div>
             </div>
 
-            {needsCalibration && isEdit && (
-              <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs text-blue-700">
-                Calibra el sensor des de la targeta del dipòsit un cop desat.
-              </div>
-            )}
-
             {error && (
               <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -246,12 +219,8 @@ function TankModal({ tank, devices, onClose, onSaved }) {
 function TankCard({ tank, devices, onSaved, onDeleted }) {
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [calibrating, setCalibrating] = useState(null) // 'empty' | 'full'
-  const [calStatus, setCalStatus] = useState(null)
 
   const status = tank.status
-  const needsCalibration = ['ultrasonic', 'pressure_adc', 'capacitive_adc'].includes(tank.sensor_type)
-  const sensorLabel = SENSOR_TYPES.find(s => s.value === tank.sensor_type)?.label ?? tank.sensor_type
   const deviceName = devices.find(d => d.id === tank.device_id)?.name
 
   async function handleDelete() {
@@ -263,21 +232,6 @@ function TankCard({ tank, devices, onSaved, onDeleted }) {
     } catch {
       setDeleting(false)
       alert('Error en eliminar el dipòsit')
-    }
-  }
-
-  async function handleCalibrate(level) {
-    setCalibrating(level)
-    setCalStatus(null)
-    try {
-      const r = await calibrateTank(tank.id, level)
-      setCalStatus({ ok: true, msg: `Calibrat: ${level === 'empty' ? 'buit' : 'ple'} = ${r.calibration_value}` })
-      onSaved()
-    } catch (e) {
-      setCalStatus({ ok: false, msg: e.response?.data?.detail ?? 'Error de calibratge' })
-    } finally {
-      setCalibrating(null)
-      setTimeout(() => setCalStatus(null), 4000)
     }
   }
 
@@ -301,7 +255,10 @@ function TankCard({ tank, devices, onSaved, onDeleted }) {
             </div>
             <div className="min-w-0">
               <p className="font-semibold text-gray-900 truncate">{tank.name}</p>
-              <p className="text-xs text-gray-400 truncate">{sensorLabel}{deviceName ? ` · ${deviceName}` : ''}</p>
+              <p className="text-xs text-gray-400 truncate">
+                {tank.peripheral_id ? `Sensor #${tank.peripheral_id}` : 'Sense sensor'}
+                {deviceName ? ` · ${deviceName}` : ''}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -345,42 +302,6 @@ function TankCard({ tank, devices, onSaved, onDeleted }) {
           </div>
         </div>
 
-        {/* Calibration */}
-        {needsCalibration && (
-          <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
-            <div className="flex items-center gap-2">
-              <Target className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Calibratge</span>
-            </div>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => handleCalibrate('empty')}
-                disabled={calibrating !== null}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50"
-              >
-                {calibrating === 'empty' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                Marcar buit ara
-              </button>
-              <button
-                onClick={() => handleCalibrate('full')}
-                disabled={calibrating !== null}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-xs text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
-              >
-                {calibrating === 'full' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                Marcar ple ara
-              </button>
-            </div>
-            {calStatus && (
-              <div className={clsx(
-                'flex items-center gap-2 text-xs mt-2 px-2 py-1.5 rounded-lg',
-                calStatus.ok ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
-              )}>
-                {calStatus.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                {calStatus.msg}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </>
   )

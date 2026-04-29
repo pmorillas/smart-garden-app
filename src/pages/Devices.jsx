@@ -19,12 +19,13 @@ const TYPE_META = {
   HTU21D:       { label: 'HTU21D',          Icon: Thermometer, bg: 'bg-cyan-100',   text: 'text-cyan-700',   hasPin1: false, hasPin2: false, hasI2c: true,  hasCal: false },
   BH1750:       { label: 'BH1750',          Icon: Sun,         bg: 'bg-orange-100', text: 'text-orange-700', hasPin1: false, hasPin2: false, hasI2c: true,  hasCal: false },
   HC_SR04:      { label: 'HC-SR04',         Icon: Radio,       bg: 'bg-violet-100', text: 'text-violet-700', hasPin1: true,  hasPin2: true,  hasI2c: false, hasCal: false },
-  FLOAT_BINARY: { label: 'Flotador binari', Icon: Gauge,       bg: 'bg-teal-100',   text: 'text-teal-700',   hasPin1: true,  hasPin2: true,  hasI2c: false, hasCal: false },
+  FLOAT_BINARY: { label: 'Flotador binari', Icon: Gauge,       bg: 'bg-teal-100',   text: 'text-teal-700',   hasPin1: false, hasPin2: false, hasI2c: false, hasCal: false },
 }
 
 const EMPTY_FORM = {
   name: '', type: 'SOIL_ADC', pin1: '', pin2: '',
   i2c_address: '', i2c_bus: 0, cal_empty: '', cal_full: '', enabled: true,
+  floatPins: [],
 }
 
 const POLL_OPTIONS = [
@@ -74,6 +75,13 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
     cal_empty:   peripheral.extra_config?.cal_empty ?? '',
     cal_full:    peripheral.extra_config?.cal_full ?? '',
     enabled:     peripheral.enabled,
+    floatPins:   peripheral.type === 'FLOAT_BINARY'
+      ? (peripheral.extra_config?.pins ?? []).map(p => ({
+          pin:       String(p.pin ?? ''),
+          level_pct: String(p.level_pct ?? ''),
+          mode:      p.mode ?? 'pullup',
+        }))
+      : [],
   } : { ...EMPTY_FORM })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
@@ -93,10 +101,16 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
         pin2:        meta.hasPin2 && form.pin2 !== ''        ? parseInt(form.pin2)        : null,
         i2c_address: meta.hasI2c  && form.i2c_address !== '' ? parseInt(form.i2c_address) : null,
         i2c_bus:     meta.hasI2c  ? parseInt(form.i2c_bus) : 0,
-        extra_config: meta.hasCal ? {
-          cal_empty: form.cal_empty !== '' ? parseInt(form.cal_empty) : null,
-          cal_full:  form.cal_full  !== '' ? parseInt(form.cal_full)  : null,
-        } : null,
+        extra_config: form.type === 'FLOAT_BINARY'
+          ? { pins: form.floatPins.map(fp => ({
+              pin:       fp.pin !== '' ? parseInt(fp.pin) : 0,
+              level_pct: fp.level_pct !== '' ? parseInt(fp.level_pct) : 0,
+              mode:      fp.mode,
+            })) }
+          : meta.hasCal ? {
+              cal_empty: form.cal_empty !== '' ? parseInt(form.cal_empty) : null,
+              cal_full:  form.cal_full  !== '' ? parseInt(form.cal_full)  : null,
+            } : null,
         enabled: form.enabled,
       }
       if (isEdit) {
@@ -177,6 +191,76 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
                   <option value={0}>Bus 0</option>
                   <option value={1}>Bus 1</option>
                 </select>
+              </div>
+            </div>
+          )}
+
+          {form.type === 'FLOAT_BINARY' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-medium text-gray-500">Pins flotadors (fins a 4)</label>
+                <button type="button"
+                  onClick={() => form.floatPins.length < 4 && set('floatPins', [...form.floatPins, { pin: '', level_pct: '', mode: 'pullup' }])}
+                  disabled={form.floatPins.length >= 4}
+                  className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Plus className="w-3 h-3" /> Afegir pin
+                </button>
+              </div>
+              {form.floatPins.length === 0 && (
+                <p className="text-xs text-gray-400 italic py-1">Cap pin configurat. Afegeix fins a 4 pins.</p>
+              )}
+              <div className="space-y-2">
+                {form.floatPins.map((fp, i) => (
+                  <div key={i} className="flex items-end gap-2 rounded-lg border border-gray-200 px-3 py-2.5 bg-gray-50">
+                    <div className="w-16">
+                      <label className="block text-[10px] text-gray-400 mb-1">GPIO</label>
+                      <input type="number" min={0} max={39}
+                        value={fp.pin}
+                        onChange={e => {
+                          const pins = [...form.floatPins]
+                          pins[i] = { ...pins[i], pin: e.target.value }
+                          set('floatPins', pins)
+                        }}
+                        placeholder="0–39"
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400 bg-white text-center"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-[10px] text-gray-400 mb-1">Nivell %</label>
+                      <input type="number" min={0} max={100}
+                        value={fp.level_pct}
+                        onChange={e => {
+                          const pins = [...form.floatPins]
+                          pins[i] = { ...pins[i], level_pct: e.target.value }
+                          set('floatPins', pins)
+                        }}
+                        placeholder="0–100"
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400 bg-white text-center"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-[10px] text-gray-400 mb-1">Mode</label>
+                      <select
+                        value={fp.mode}
+                        onChange={e => {
+                          const pins = [...form.floatPins]
+                          pins[i] = { ...pins[i], mode: e.target.value }
+                          set('floatPins', pins)
+                        }}
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400 bg-white"
+                      >
+                        <option value="pullup">Pull-up (GND)</option>
+                        <option value="pulldown">Pull-down (3.3V)</option>
+                      </select>
+                    </div>
+                    <button type="button"
+                      onClick={() => set('floatPins', form.floatPins.filter((_, j) => j !== i))}
+                      className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -402,8 +486,13 @@ function HardwareConfigModal({ device, onClose }) {
                             <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                               <TypeBadge type={p.type} />
-                              {p.pin1 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin1}</span>}
-                              {p.pin2 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin2}</span>}
+                              {p.type !== 'FLOAT_BINARY' && p.pin1 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin1}</span>}
+                              {p.type !== 'FLOAT_BINARY' && p.pin2 != null && <span className="text-[11px] text-gray-400 font-mono">GPIO{p.pin2}</span>}
+                              {p.type === 'FLOAT_BINARY' && p.extra_config?.pins?.length > 0 && (
+                                <span className="text-[11px] text-gray-400 font-mono">
+                                  {p.extra_config.pins.map(pin => `GPIO${pin.pin}`).join(', ')} · {p.extra_config.pins.length} pin{p.extra_config.pins.length !== 1 ? 's' : ''}
+                                </span>
+                              )}
                               {p.i2c_address != null && <span className="text-[11px] text-gray-400 font-mono">0x{p.i2c_address.toString(16).padStart(2, '0').toUpperCase()}</span>}
                               {p.extra_config?.cal_empty != null && <span className="text-[11px] text-gray-400">Cal: {p.extra_config.cal_empty}–{p.extra_config.cal_full}</span>}
                             </div>
