@@ -12,8 +12,8 @@ import Tanks from './pages/Tanks'
 import Login from './pages/Login'
 
 function ProtectedRoute({ children }) {
-  const { user, isLoading } = useAuth()
-  if (isLoading) return null
+  const { user, token, isLoading } = useAuth()
+  if (isLoading || (token && user === null)) return null
   if (!user) return <Navigate to="/login" replace />
   return children
 }
