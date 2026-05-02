@@ -3,9 +3,9 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Loader2, Trash2, Database } from 'lucide-react'
+import { Loader2, Trash2, Database, ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
-import { fetchZones, getZoneHistory, cleanupHistory } from '../api/zones'
+import { fetchZones, getZoneHistory, getWateringEvents, cleanupHistory } from '../api/zones'
 import { getAmbientHistory } from '../api/sensors'
 
 const ZONE_COLORS = ['#3b82f6', '#06b6d4', '#8b5cf6', '#22c55e', '#f97316']
@@ -166,6 +166,8 @@ function CleanupRow({ category, label }) {
   )
 }
 
+const EVENTS_PAGE_SIZE = 15
+
 export default function History() {
   const [zones, setZones] = useState([])
   const [zoneHistories, setZoneHistories] = useState([])
@@ -174,6 +176,10 @@ export default function History() {
   const [activeZone, setActiveZone] = useState('all')
   const [hours, setHours] = useState(24)
   const [activeSeries, setActiveSeries] = useState(new Set(['soil']))
+
+  const [eventsData, setEventsData] = useState({ total: 0, page: 1, pages: 1, items: [] })
+  const [eventsPage, setEventsPage] = useState(1)
+  const [eventsLoading, setEventsLoading] = useState(true)
 
   const toggleSeries = (val) => {
     setActiveSeries(prev => {
@@ -184,6 +190,7 @@ export default function History() {
     })
   }
 
+  // Sensor chart: depends on hours filter
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -209,17 +216,26 @@ export default function History() {
     return () => { cancelled = true }
   }, [hours])
 
+  // Watering events: independent of hours, with pagination
+  useEffect(() => {
+    let cancelled = false
+    setEventsLoading(true)
+
+    getWateringEvents({ page: eventsPage, page_size: EVENTS_PAGE_SIZE })
+      .then(data => {
+        if (!cancelled) {
+          setEventsData(data)
+          setEventsLoading(false)
+        }
+      })
+      .catch(() => { if (!cancelled) setEventsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [eventsPage])
+
   const chartData = useMemo(
     () => mergeAllData({ zoneHistories, ambientHistory, activeSeries }),
     [zoneHistories, ambientHistory, activeSeries]
-  )
-
-  const allEvents = useMemo(() =>
-    zoneHistories
-      .flatMap(h => (h.watering_events ?? []).map(e => ({ ...e, zone_id: h.zoneId, zone_name: h.zoneName })))
-      .sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
-      .slice(0, 20),
-    [zoneHistories]
   )
 
   const zoneOptions = [
@@ -401,79 +417,109 @@ export default function History() {
 
       {/* Events table */}
       <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Events de reg recents</h2>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">Historial de regs</h2>
+          {eventsData.total > 0 && (
+            <span className="text-xs text-gray-400">{eventsData.total} registres</span>
+          )}
         </div>
-        {loading ? (
+        {eventsLoading ? (
           <div className="flex items-center justify-center py-10">
             <Loader2 className="w-5 h-5 animate-spin text-green-400" />
           </div>
-        ) : allEvents.length === 0 ? (
+        ) : eventsData.items.length === 0 ? (
           <div className="py-10 text-center">
             <p className="text-sm text-gray-400">Cap event de reg registrat</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-left bg-gray-50">
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Hora</th>
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Zona</th>
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Durada</th>
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide hidden sm:table-cell">Trigger</th>
-                  <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Estat / Motiu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allEvents.map(ev => {
-                  const isSkipped = ev.outcome === 'skipped'
-                  return (
-                    <tr
-                      key={ev.id}
-                      className={clsx(
-                        'border-b border-gray-50 hover:bg-gray-50/60 transition-colors',
-                        isSkipped && 'opacity-75'
-                      )}
-                    >
-                      <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDatetime(ev.started_at)}</td>
-                      <td className="px-4 md:px-6 py-3.5">
-                        <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                          {ev.zone_name}
-                        </span>
-                      </td>
-                      <td className="px-4 md:px-6 py-3.5 text-gray-600">
-                        {isSkipped ? '—' : formatDuration(ev.duration_seconds)}
-                      </td>
-                      <td className="px-4 md:px-6 py-3.5 text-gray-500 hidden sm:table-cell">
-                        {TRIGGER_LABELS[ev.trigger_type] ?? ev.trigger_type}
-                      </td>
-                      <td className="px-4 md:px-6 py-3.5">
-                        {isSkipped ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 w-fit">
-                              Saltat
-                            </span>
-                            {ev.skip_reason && (
-                              <span className="text-xs text-gray-400">
-                                {SKIP_REASON_LABELS[ev.skip_reason] ?? ev.skip_reason}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className={clsx(
-                            'px-2 py-0.5 rounded-full text-xs font-medium',
-                            ev.ended_at ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                          )}>
-                            {ev.ended_at ? 'Completat' : 'Actiu'}
-                          </span>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left bg-gray-50">
+                    <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Hora</th>
+                    <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Zona</th>
+                    <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Durada</th>
+                    <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide hidden sm:table-cell">Trigger</th>
+                    <th className="px-4 md:px-6 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">Estat / Motiu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {eventsData.items.map(ev => {
+                    const isSkipped = ev.outcome === 'skipped'
+                    return (
+                      <tr
+                        key={ev.id}
+                        className={clsx(
+                          'border-b border-gray-50 hover:bg-gray-50/60 transition-colors',
+                          isSkipped && 'opacity-75'
                         )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      >
+                        <td className="px-4 md:px-6 py-3.5 text-gray-600">{formatDatetime(ev.started_at)}</td>
+                        <td className="px-4 md:px-6 py-3.5">
+                          <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                            {ev.zone_name}
+                          </span>
+                        </td>
+                        <td className="px-4 md:px-6 py-3.5 text-gray-600">
+                          {isSkipped ? '—' : formatDuration(ev.duration_seconds)}
+                        </td>
+                        <td className="px-4 md:px-6 py-3.5 text-gray-500 hidden sm:table-cell">
+                          {TRIGGER_LABELS[ev.trigger_type] ?? ev.trigger_type}
+                        </td>
+                        <td className="px-4 md:px-6 py-3.5">
+                          {isSkipped ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 w-fit">
+                                Saltat
+                              </span>
+                              {ev.skip_reason && (
+                                <span className="text-xs text-gray-400">
+                                  {SKIP_REASON_LABELS[ev.skip_reason] ?? ev.skip_reason}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className={clsx(
+                              'px-2 py-0.5 rounded-full text-xs font-medium',
+                              ev.ended_at ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                            )}>
+                              {ev.ended_at ? 'Completat' : 'Actiu'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {eventsData.pages > 1 && (
+              <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  Pàgina {eventsData.page} de {eventsData.pages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setEventsPage(p => Math.max(1, p - 1))}
+                    disabled={eventsPage <= 1}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Pàgina anterior"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setEventsPage(p => Math.min(eventsData.pages, p + 1))}
+                    disabled={eventsPage >= eventsData.pages}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Pàgina següent"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

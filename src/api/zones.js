@@ -18,6 +18,9 @@ export const updateZoneConfig = (id, config) =>
 export const getZoneHistory = (id, hours = 24) =>
   httpClient.get(`/api/zones/${id}/history`, { params: { hours } }).then(r => r.data)
 
+export const getWateringEvents = (params = {}) =>
+  httpClient.get('/api/zones/watering-events', { params }).then(r => r.data)
+
 export const cleanupHistory = (category, olderThan) =>
   httpClient.delete('/api/data/cleanup', {
     data: { category, older_than: olderThan },
