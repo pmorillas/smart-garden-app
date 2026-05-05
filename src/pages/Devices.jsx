@@ -25,7 +25,7 @@ const TYPE_META = {
 const EMPTY_FORM = {
   name: '', type: 'SOIL_ADC', pin1: '', pin2: '',
   i2c_address: '', i2c_bus: 0, cal_empty: '', cal_full: '', enabled: true,
-  floatPins: [],
+  floatPins: [], sensor_type: 'capacitive',
 }
 
 const POLL_OPTIONS = [
@@ -75,6 +75,7 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
     cal_empty:   peripheral.extra_config?.cal_empty ?? '',
     cal_full:    peripheral.extra_config?.cal_full ?? '',
     enabled:     peripheral.enabled,
+    sensor_type: peripheral.sensor_type ?? 'capacitive',
     floatPins:   peripheral.type === 'FLOAT_BINARY'
       ? (peripheral.extra_config?.pins ?? []).map(p => ({
           pin:       String(p.pin ?? ''),
@@ -112,6 +113,7 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
               cal_full:  form.cal_full  !== '' ? parseInt(form.cal_full)  : null,
             } : null,
         enabled: form.enabled,
+        ...(form.type === 'SOIL_ADC' ? { sensor_type: form.sensor_type } : {}),
       }
       if (isEdit) {
         await updatePeripheral(deviceId, peripheral.id, payload)
@@ -266,20 +268,46 @@ function PeripheralFormModal({ deviceId, peripheral, onClose, onSaved }) {
           )}
 
           {meta.hasCal && (
-            <div className="grid grid-cols-2 gap-3">
+            <>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Cal. sec (ADC)</label>
-                <input type="number" min={0} max={4095} value={form.cal_empty} onChange={e => set('cal_empty', e.target.value)}
-                  placeholder="Ex: 3800"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400" />
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Tipus de sensor</label>
+                <div className="flex gap-2">
+                  {[
+                    { value: 'capacitive', label: 'Capacitiu', hint: 'ADC alt = sec' },
+                    { value: 'resistive',  label: 'Resistiu',  hint: 'ADC baix = sec' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => set('sensor_type', opt.value)}
+                      className={clsx(
+                        'flex-1 px-3 py-2 rounded-lg border text-left transition-colors',
+                        form.sensor_type === opt.value
+                          ? 'border-green-400 bg-green-50 text-green-800'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      )}
+                    >
+                      <p className="text-xs font-semibold">{opt.label}</p>
+                      <p className="text-[10px] opacity-70 mt-0.5">{opt.hint}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Cal. mullat (ADC)</label>
-                <input type="number" min={0} max={4095} value={form.cal_full} onChange={e => set('cal_full', e.target.value)}
-                  placeholder="Ex: 1200"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Cal. sec (ADC)</label>
+                  <input type="number" min={0} max={4095} value={form.cal_empty} onChange={e => set('cal_empty', e.target.value)}
+                    placeholder={form.sensor_type === 'resistive' ? 'Ex: 500' : 'Ex: 3800'}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Cal. mullat (ADC)</label>
+                  <input type="number" min={0} max={4095} value={form.cal_full} onChange={e => set('cal_full', e.target.value)}
+                    placeholder={form.sensor_type === 'resistive' ? 'Ex: 3500' : 'Ex: 1200'}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-200 focus:border-green-400" />
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           <label className="flex items-center gap-3 cursor-pointer select-none">
@@ -494,6 +522,9 @@ function HardwareConfigModal({ device, onClose }) {
                                 </span>
                               )}
                               {p.i2c_address != null && <span className="text-[11px] text-gray-400 font-mono">0x{p.i2c_address.toString(16).padStart(2, '0').toUpperCase()}</span>}
+                              {p.type === 'SOIL_ADC' && p.sensor_type === 'resistive' && (
+                                <span className="text-[11px] font-medium text-amber-600 bg-amber-50 rounded px-1.5 py-0.5">Resistiu</span>
+                              )}
                               {p.extra_config?.cal_empty != null && <span className="text-[11px] text-gray-400">Cal: {p.extra_config.cal_empty}–{p.extra_config.cal_full}</span>}
                             </div>
                           </div>
